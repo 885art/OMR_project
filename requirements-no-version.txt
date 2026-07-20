@@ -84,6 +84,7 @@ tomli
 torch
 torchaudio
 torchvision
+ultralytics
 tornado
 tqdm
 traitlets

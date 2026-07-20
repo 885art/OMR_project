@@ -48,5 +48,15 @@
   ],
   "numTrack": 4,
   "track_shift": [0,0,0,0],
-  "clef_options": [[1],[1],[0],[-1,-2]]
+  "clef_options": [[1],[1],[0],[-1,-2]],
+  "articulation": {
+    "enabled": true,
+    "device": "auto",
+    "confidence": 0.25,
+    "class_confidence": {
+      "accent": 0.55,
+      "staccato": 0.45,
+      "tenuto": 0.45
+    }
+  }
 }

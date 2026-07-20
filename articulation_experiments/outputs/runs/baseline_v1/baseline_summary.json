@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-07-19T18:27:17.344093+00:00",
+  "started_at_utc": "2026-07-19T16:59:18.345464+00:00",
+  "duration_seconds": 5278.997738300008,
+  "completed": true,
+  "run_name": "baseline_v1",
+  "model": "YOLO11n Detect",
+  "seed": 20260717,
+  "training": {
+    "imgsz": 1024,
+    "batch": 4,
+    "epochs": 50,
+    "patience": 15,
+    "workers": 2,
+    "device": 0,
+    "cache": false,
+    "amp": true,
+    "deterministic": true,
+    "optimizer": "AdamW",
+    "lr0": 0.001,
+    "lrf": 0.01,
+    "weight_decay": 0.0005,
+    "warmup_epochs": 3.0,
+    "plots": true,
+    "save": true,
+    "save_period": 10,
+    "verbose": true,
+    "hsv_h": 0.0,
+    "hsv_s": 0.0,
+    "hsv_v": 0.0,
+    "degrees": 0.0,
+    "translate": 0.0,
+    "scale": 0.0,
+    "shear": 0.0,
+    "perspective": 0.0,
+    "flipud": 0.0,
+    "fliplr": 0.0,
+    "bgr": 0.0,
+    "mosaic": 0.0,
+    "mixup": 0.0,
+    "cutmix": 0.0,
+    "copy_paste": 0.0,
+    "erasing": 0.0
+  },
+  "validation": {
+    "split": "val",
+    "batch": 4,
+    "workers": 2,
+    "plots": true,
+    "verbose": true
+  },
+  "metrics": {
+    "aggregate": {
+      "metrics/precision(B)": 0.9766978065423269,
+      "metrics/recall(B)": 0.904813069022213,
+      "metrics/mAP50(B)": 0.9571110952803781,
+      "metrics/mAP50-95(B)": 0.8116013229689417,
+      "fitness": 0.8116013229689417
+    },
+    "per_class": {
+      "0": {
+        "name": "articAccentAbove",
+        "precision": 0.9920802388070691,
+        "recall": 0.9854620976116303,
+        "f1": 0.9887600939096809,
+        "ap50": 0.9947645854657113,
+        "map50_95": 0.9153209011636946
+      },
+      "1": {
+        "name": "articAccentBelow",
+        "precision": 0.9926729276608705,
+        "recall": 0.9508547008547008,
+        "f1": 0.9713139199348149,
+        "ap50": 0.983885765246297,
+        "map50_95": 0.895707210822051
+      },
+      "2": {
+        "name": "articStaccatoAbove",
+        "precision": 0.9946673104536558,
+        "recall": 0.945855198820174,
+        "f1": 0.9696473420873997,
+        "ap50": 0.9784415353177135,
+        "map50_95": 0.7692102136060318
+      },
+      "3": {
+        "name": "articStaccatoBelow",
+        "precision": 0.9839650719526976,
+        "recall": 0.9530829350653961,
+        "f1": 0.9682778283044906,
+        "ap50": 0.9887028745280801,
+        "map50_95": 0.7509500908528576
+      },
+      "4": {
+        "name": "articTenutoAbove",
+        "precision": 0.9075931940697327,
+        "recall": 0.9013157894736842,
+        "f1": 0.9044435996237837,
+        "ap50": 0.9668936861064114,
+        "map50_95": 0.842954903249192
+      },
+      "5": {
+        "name": "articTenutoBelow",
+        "precision": 0.9892080963099354,
+        "recall": 0.6923076923076923,
+        "f1": 0.8145464693274395,
+        "ap50": 0.8299781250180551,
+        "map50_95": 0.6954646181198231
+      }
+    }
+  },
+  "training_csv": {
+    "row_count": 50,
+    "first": {
+      "epoch": "1",
+      "time": "115.091",
+      "train/box_loss": "1.55307",
+      "train/cls_loss": "1.47272",
+      "train/dfl_loss": "0.7593",
+      "metrics/precision(B)": "0.8676",
+      "metrics/recall(B)": "0.8617",
+      "metrics/mAP50(B)": "0.90957",
+      "metrics/mAP50-95(B)": "0.64654",
+      "val/box_loss": "1.04767",
+      "val/cls_loss": "0.6901",
+      "val/dfl_loss": "0.75444",
+      "lr/pg0": "0.000332914",
+      "lr/pg1": "0.000332914",
+      "lr/pg2": "0.0670415"
+    },
+    "last": {
+      "epoch": "50",
+      "time": "5225.3",
+      "train/box_loss": "0.26983",
+      "train/cls_loss": "0.14815",
+      "train/dfl_loss": "0.72646",
+      "metrics/precision(B)": "0.98141",
+      "metrics/recall(B)": "0.90167",
+      "metrics/mAP50(B)": "0.95307",
+      "metrics/mAP50-95(B)": "0.80753",
+      "val/box_loss": "0.53051",
+      "val/cls_loss": "0.31277",
+      "val/dfl_loss": "0.73995",
+      "lr/pg0": "2.98e-05",
+      "lr/pg1": "2.98e-05",
+      "lr/pg2": "2.98e-05"
+    },
+    "minimum_training_losses": {
+      "train/box_loss": 0.26983,
+      "train/cls_loss": 0.14815,
+      "train/dfl_loss": 0.72484
+    },
+    "best_epoch": 46,
+    "best_epoch_metrics": {
+      "metrics/precision(B)": 0.97102,
+      "metrics/recall(B)": 0.90494,
+      "metrics/mAP50(B)": 0.95634,
+      "metrics/mAP50-95(B)": 0.81009
+    }
+  },
+  "dataset": {
+    "root": "C:\\Cheewai\\OMR_work\\25-omr\\articulation_experiments\\outputs\\yolo_dataset",
+    "train_tiles": 3178,
+    "val_tiles": 761
+  },
+  "paths": {
+    "run_dir": "C:\\Cheewai\\OMR_work\\25-omr\\articulation_experiments\\outputs\\runs\\baseline_v1",
+    "best_weights": "C:\\Cheewai\\OMR_work\\25-omr\\articulation_experiments\\outputs\\runs\\baseline_v1\\weights\\best.pt",
+    "last_weights": "C:\\Cheewai\\OMR_work\\25-omr\\articulation_experiments\\outputs\\runs\\baseline_v1\\weights\\last.pt"
+  },
+  "input_sha256": {
+    "baseline_config.yaml": "507d3004d495698585e0275097c12042baaf45fef2da4dc111f03512b0c2fc8a",
+    "dataset.yaml": "d5731ead4777cc10c5baafe30e68785152da14b8d1f40e421377a4b7781536cd",
+    "dataset_statistics.json": "b7e6dd5f522ee210a8e57361f8245a4d9a6ee16c1363a9dd5ec83efd3e971700",
+    "dataset_validation_report.json": "28b322bc3a5fa942a3c68dc2a3bb809d334906ff3e88af95c809c97298da51b6",
+    "class_mapping.json": "022ec658244acd575e3a359ea70244d6ad328f3fe5d442494287a17a1c262e52",
+    "environment_report.json": "845d8f6ee0aceeade7c84c095f759c571203c0323ff8dba07b81a94dc1515c3b"
+  },
+  "git": {
+    "commit_hash": "92d0a2abb33a5059f249ec52b05e4f0f2827d0da",
+    "status_short": [
+      " M omr/inference.py",
+      "?? articulation_experiments/",
+      "?? yolo/"
+    ]
+  }
+}

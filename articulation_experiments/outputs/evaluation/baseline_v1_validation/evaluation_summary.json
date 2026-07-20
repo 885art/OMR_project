@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "weights": "C:\\Cheewai\\OMR_work\\25-omr\\articulation_experiments\\outputs\\runs\\baseline_v1\\weights\\best.pt",
+  "dataset_root": "C:\\Cheewai\\OMR_work\\25-omr\\articulation_experiments\\outputs\\yolo_dataset",
+  "thresholds": {
+    "confidence": 0.25,
+    "iou": 0.5,
+    "bbox_area_buckets": {
+      "tiny": "<64 px^2",
+      "small": "64-255 px^2",
+      "medium": ">=256 px^2"
+    }
+  },
+  "tile_count": 761,
+  "ground_truth_count": 4431,
+  "prediction_count": 4470,
+  "aggregate_fixed_threshold": {
+    "tp": 4328,
+    "fp": 142,
+    "fn": 103,
+    "precision": 0.9682326621923938,
+    "recall": 0.9767546829158203,
+    "f1": 0.9724750028086732
+  },
+  "per_class_fixed_threshold": {
+    "0": {
+      "name": "articAccentAbove",
+      "tp": 960,
+      "fp": 5,
+      "fn": 3,
+      "precision": 0.9948186528497409,
+      "recall": 0.9968847352024922,
+      "f1": 0.995850622406639
+    },
+    "1": {
+      "name": "articAccentBelow",
+      "tp": 460,
+      "fp": 6,
+      "fn": 8,
+      "precision": 0.9871244635193133,
+      "recall": 0.9829059829059829,
+      "f1": 0.9850107066381155
+    },
+    "2": {
+      "name": "articStaccatoAbove",
+      "tp": 1905,
+      "fp": 65,
+      "fn": 67,
+      "precision": 0.9670050761421319,
+      "recall": 0.966024340770791,
+      "f1": 0.9665144596651446
+    },
+    "3": {
+      "name": "articStaccatoBelow",
+      "tp": 828,
+      "fp": 56,
+      "fn": 9,
+      "precision": 0.9366515837104072,
+      "recall": 0.989247311827957,
+      "f1": 0.9622312608948286
+    },
+    "4": {
+      "name": "articTenutoAbove",
+      "tp": 144,
+      "fp": 10,
+      "fn": 8,
+      "precision": 0.935064935064935,
+      "recall": 0.9473684210526315,
+      "f1": 0.9411764705882352
+    },
+    "5": {
+      "name": "articTenutoBelow",
+      "tp": 31,
+      "fp": 0,
+      "fn": 8,
+      "precision": 1.0,
+      "recall": 0.7948717948717948,
+      "f1": 0.8857142857142858
+    }
+  },
+  "normalized_semantic_metrics": {
+    "accent": {
+      "tp": 1420,
+      "fp": 11,
+      "fn": 11,
+      "precision": 0.9923130677847659,
+      "recall": 0.9923130677847659,
+      "f1": 0.9923130677847659
+    },
+    "staccato": {
+      "tp": 2733,
+      "fp": 121,
+      "fn": 76,
+      "precision": 0.95760336370007,
+      "recall": 0.9729441082235671,
+      "f1": 0.965212784743069
+    },
+    "tenuto": {
+      "tp": 175,
+      "fp": 10,
+      "fn": 16,
+      "precision": 0.9459459459459459,
+      "recall": 0.9162303664921466,
+      "f1": 0.9308510638297872
+    }
+  },
+  "bbox_size_buckets": {
+    "tiny_lt_64px2": {
+      "ground_truth": 2250,
+      "true_positive": 2232,
+      "recall": 0.992
+    },
+    "small_64_to_255px2": {
+      "ground_truth": 761,
+      "true_positive": 679,
+      "recall": 0.8922470433639947
+    },
+    "medium_ge_256px2": {
+      "ground_truth": 1420,
+      "true_positive": 1417,
+      "recall": 0.997887323943662
+    }
+  },
+  "side_confusion_for_same_semantic": {
+    "above_to_above": 3009,
+    "below_to_above": 1,
+    "below_to_below": 1319
+  },
+  "confusion_matrix_labels": [
+    "articAccentAbove",
+    "articAccentBelow",
+    "articStaccatoAbove",
+    "articStaccatoBelow",
+    "articTenutoAbove",
+    "articTenutoBelow",
+    "background"
+  ],
+  "confusion_matrix": [
+    [
+      960,
+      0,
+      0,
+      0,
+      1,
+      0,
+      2
+    ],
+    [
+      1,
+      460,
+      0,
+      0,
+      0,
+      0,
+      7
+    ],
+    [
+      0,
+      0,
+      1905,
+      0,
+      0,
+      0,
+      67
+    ],
+    [
+      0,
+      0,
+      0,
+      828,
+      0,
+      0,
+      9
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      144,
+      0,
+      8
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      31,
+      8
+    ],
+    [
+      4,
+      6,
+      65,
+      56,
+      9,
+      0,
+      0
+    ]
+  ],
+  "speed": {
+    "total_seconds": 20.779855499975383,
+    "milliseconds_per_tile": 27.30598620233296,
+    "tiles_per_second": 36.6220063465264
+  }
+}

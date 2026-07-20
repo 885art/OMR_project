@@ -1,0 +1,58 @@
+schema_version: 1
+seed: 20260717
+
+subset:
+  source_split: train
+  positive_tiles: 18
+  minimum_tiles_per_class: 3
+  negative_tiles: 2
+  prefer_unclipped: true
+  prefer_unpadded: true
+
+training:
+  model: yolo11n.pt
+  imgsz: 1024
+  batch: 4
+  epochs: 150
+  patience: 50
+  workers: 2
+  device: 0
+  pretrained: true
+  cache: false
+  amp: true
+  deterministic: true
+  optimizer: AdamW
+  lr0: 0.001
+  weight_decay: 0.0005
+  warmup_epochs: 0.0
+  plots: true
+  save: true
+  verbose: true
+
+augmentation:
+  hsv_h: 0.0
+  hsv_s: 0.0
+  hsv_v: 0.0
+  degrees: 0.0
+  translate: 0.0
+  scale: 0.0
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.0
+  bgr: 0.0
+  mosaic: 0.0
+  mixup: 0.0
+  cutmix: 0.0
+  copy_paste: 0.0
+  erasing: 0.0
+
+overfit_criteria:
+  precision: 0.90
+  recall: 0.90
+  map50: 0.90
+
+output:
+  run_name: overfit_v1
+  comparison_images: 12
+  prediction_confidence: 0.05

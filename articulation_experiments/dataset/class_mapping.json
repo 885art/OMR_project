@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "description": "DeepScoresV2 dense articulation classes mapped to YOLO detection classes.",
+  "deepscores_to_yolo": {
+    "71": 0,
+    "72": 1,
+    "73": 2,
+    "74": 3,
+    "75": 4,
+    "76": 5
+  },
+  "yolo_names": [
+    "articAccentAbove",
+    "articAccentBelow",
+    "articStaccatoAbove",
+    "articStaccatoBelow",
+    "articTenutoAbove",
+    "articTenutoBelow"
+  ],
+  "classes": [
+    {
+      "deepscores_id": 71,
+      "deepscores_name": "articAccentAbove",
+      "yolo_id": 0,
+      "normalized_semantic_class": "accent",
+      "side": "above"
+    },
+    {
+      "deepscores_id": 72,
+      "deepscores_name": "articAccentBelow",
+      "yolo_id": 1,
+      "normalized_semantic_class": "accent",
+      "side": "below"
+    },
+    {
+      "deepscores_id": 73,
+      "deepscores_name": "articStaccatoAbove",
+      "yolo_id": 2,
+      "normalized_semantic_class": "staccato",
+      "side": "above"
+    },
+    {
+      "deepscores_id": 74,
+      "deepscores_name": "articStaccatoBelow",
+      "yolo_id": 3,
+      "normalized_semantic_class": "staccato",
+      "side": "below"
+    },
+    {
+      "deepscores_id": 75,
+      "deepscores_name": "articTenutoAbove",
+      "yolo_id": 4,
+      "normalized_semantic_class": "tenuto",
+      "side": "above"
+    },
+    {
+      "deepscores_id": 76,
+      "deepscores_name": "articTenutoBelow",
+      "yolo_id": 5,
+      "normalized_semantic_class": "tenuto",
+      "side": "below"
+    }
+  ]
+}

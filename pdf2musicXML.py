@@ -30,6 +30,11 @@ from collections import Counter
 from pdf2png import savePdf2Png
 import pickle
 import itertools
+from omr.articulation import (
+    DEFAULT_WEIGHTS as DEFAULT_ARTICULATION_WEIGHTS,
+    attach_to_music21,
+    process_page_articulations,
+)
 
 OUTPUT_BASE_FOLDER = 'string_dataset/output/beethoven'
 
@@ -186,6 +191,8 @@ class NoteGroup:
         # self.noteLineMiddle: List[bool] = []
         self.restList:List[Rest] = []
         self.tunedLength: Fraction|None = None
+        # Populated by the articulation detector before MusicXML export.
+        self.articulations: List[dict] = []
     def addRest(self, rest:Rest):
         self.restList.append(rest)
         self.updateBoxRest(rest.boundingBox)
@@ -2655,11 +2662,12 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
         keyShiftedList = pitchListShift(keyLst, (-trkShift*7)%12, flatSharp>0)
         trksShifted[linNo].append(keyShiftedList)
         if len(keyShiftedList) > 1:
-            return flatSet, sharpSet, chord.Chord(keyShiftedList, quarterLength = currLength*4)
+            result = chord.Chord(keyShiftedList, quarterLength = currLength*4)
         elif len(keyShiftedList) == 1:
-            return flatSet, sharpSet, note.Note(keyShiftedList[0], quarterLength=currLength*4)
+            result = note.Note(keyShiftedList[0], quarterLength=currLength*4)
         else:
             return flatSet, sharpSet, None
+        return flatSet, sharpSet, attach_to_music21(result, elem)
         # actualPitch, 0: B4, 1: C5, 2: D5
     
     def parseNoteGroup(elem:NoteGroup, flatSet, sharpSet, naturalSet, currClef, linNo, trkShift = 0):
@@ -2713,11 +2721,12 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
         if currLength == 0: # account for tuned to 0
             return flatSet, sharpSet, None
         if len(keyLst) > 1:
-            return flatSet, sharpSet, chord.Chord(keyLst, quarterLength = currLength*4)
+            result = chord.Chord(keyLst, quarterLength = currLength*4)
         elif len(keyLst) == 1:
-            return flatSet, sharpSet, note.Note(keyLst[0], quarterLength=currLength*4)
+            result = note.Note(keyLst[0], quarterLength=currLength*4)
         else:
             return flatSet, sharpSet, None # ornament
+        return flatSet, sharpSet, attach_to_music21(result, elem)
         # actualPitch, 0: B4, 1: C5, 2: D5
     def parseRest(elem:Rest):
         restLength = float(elem.tunedLength)
@@ -3674,6 +3683,37 @@ if __name__ == '__main__':
             #   far away ones can't be assigned -> do it in the 2nd round
             # tuneRhythm(noteGroupMap, stemIdxMap, noteGroupVerticallyMerged, restMap,restList,sfnClefMap,sfnClefList,beamMapImg,staffObjList)
             beamMapImg,noteGroupMap = extendNotegroupsToStaff(noteGroupMap, noteGroupVerticallyMerged,staffObjList,beamMapImg)
+            articulation_config = config.get('articulation', {})
+            if articulation_config.get('enabled', True):
+                articulation_output = os.path.join(OUTPUT_BASE_FOLDER, 'articulations')
+                source_page = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+                articulation_coordinate_scale = (
+                    image.shape[1] / source_page.shape[1],
+                    image.shape[0] / source_page.shape[0],
+                )
+                device = articulation_config.get('device', None)
+                if isinstance(device, str) and device.lower() == 'auto':
+                    device = None
+                articulation_document = process_page_articulations(
+                    img_path,
+                    img_name,
+                    noteGroupVerticallyMerged,
+                    staffObjList,
+                    articulation_output,
+                    weights=articulation_config.get('weights', str(DEFAULT_ARTICULATION_WEIGHTS)),
+                    coordinate_scale=articulation_coordinate_scale,
+                    confidence=float(articulation_config.get('confidence', 0.25)),
+                    class_confidence=articulation_config.get('class_confidence'),
+                    nms_iou=float(articulation_config.get('nms_iou', 0.5)),
+                    tile_size=int(articulation_config.get('tile_size', 1024)),
+                    overlap=int(articulation_config.get('overlap', 256)),
+                    batch=int(articulation_config.get('batch', 4)),
+                    device=device,
+                )
+                print(
+                    f"Articulations: {articulation_document['association']['matched_count']} "
+                    f"matched / {articulation_document['candidate_count']} detected"
+                )
             barList, barRanges, numBarsPerLine = constructBar(noteGroupMap, stemIdxMap, noteGroupVerticallyMerged, restMap,restList,sfnClefMap,sfnClefList,beamMapImg,staffObjList)
             # maskImg, tsBoxes, tsBoxesFiltered, debugImages = createMask(barList, barRanges, staffObjList, image, beamMapImg)
             for si in debugImages.keys():
