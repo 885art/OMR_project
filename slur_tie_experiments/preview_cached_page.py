@@ -36,6 +36,7 @@ def main() -> int:
     parser.add_argument("--page", type=int, default=1)
     parser.add_argument("--output-dir", type=Path, default=root / "slur_tie_experiments" / "outputs")
     parser.add_argument("--no-visualize", action="store_true")
+    parser.add_argument("--max-tie-span-units", type=float, default=6.5)
     args = parser.parse_args()
     sys.path.insert(0, str(root))
     import pdf2musicXML as legacy
@@ -63,7 +64,9 @@ def main() -> int:
     destination = args.output_dir.resolve() / page_id
     document = process_page_slurs_ties(
         image_path, page_id, groups, staffs, destination,
-        coordinate_scale=scale, visualize=not args.no_visualize,
+        coordinate_scale=scale,
+        max_tie_span_units=args.max_tie_span_units,
+        visualize=not args.no_visualize,
     )
     score, _, _ = legacy.exportXML(bar_list, legacy.NUM_TRACK)
     xml_path = destination / f"{page_id}.with_slurs_ties.musicxml"
@@ -73,6 +76,7 @@ def main() -> int:
         "candidates": document["candidate_count"],
         "matched": document["matched_count"],
         "relations": document["relation_count"],
+        "xml_eligible": document["xml_eligible_count"],
         "musicxml": str(xml_path),
     }, indent=2))
     return 0

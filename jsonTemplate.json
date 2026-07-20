@@ -61,6 +61,7 @@
   },
   "slur_tie": {
     "enabled": true,
+    "max_tie_span_units": 6.5,
     "visualize_pages": [1]
   }
 }

@@ -3749,11 +3749,13 @@ if __name__ == '__main__':
                     staffObjList,
                     os.path.join(OUTPUT_BASE_FOLDER, 'slur_tie'),
                     coordinate_scale=omr_coordinate_scale,
+                    max_tie_span_units=float(slur_tie_config.get('max_tie_span_units', 6.5)),
                     visualize=page_number in visualize_pages,
                 )
                 print(
                     f"Slur/tie: {slur_tie_document['matched_count']} "
-                    f"matched / {slur_tie_document['candidate_count']} detected"
+                    f"matched / {slur_tie_document['candidate_count']} detected; "
+                    f"{slur_tie_document['xml_eligible_count']} XML-eligible"
                 )
             barList, barRanges, numBarsPerLine = constructBar(noteGroupMap, stemIdxMap, noteGroupVerticallyMerged, restMap,restList,sfnClefMap,sfnClefList,beamMapImg,staffObjList)
             # maskImg, tsBoxes, tsBoxesFiltered, debugImages = createMask(barList, barRanges, staffObjList, image, beamMapImg)

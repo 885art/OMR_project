@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 DEFAULT_XML_CONFIDENCE = 0.45
+DEFAULT_MAX_TIE_SPAN_UNITS = 6.5
 
 
 def _scale_pair(scale: float | tuple[float, float]) -> tuple[float, float]:
@@ -101,8 +102,10 @@ def detect_curve_candidates(
     )
     long_horizontal = cv2.morphologyEx(clean, cv2.MORPH_OPEN, horizontal_kernel)
     clean[long_horizontal > 0] = 0
+    # Reconnect tiny horizontal print gaps without bridging two vertically
+    # adjacent/nested curves into one connected component.
     clean = cv2.morphologyEx(
-        clean, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 2))
+        clean, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 1))
     )
 
     count, labels, stats, _ = cv2.connectedComponentsWithStats(clean, connectivity=8)
@@ -185,6 +188,7 @@ def associate_curve_candidates(
     staffs: list[Any],
     image_id: str,
     coordinate_scale: float | tuple[float, float] = 1.0,
+    max_tie_span_units: float = DEFAULT_MAX_TIE_SPAN_UNITS,
 ) -> dict[str, Any]:
     """Associate curve endpoints to note groups on the same staff."""
 
@@ -246,12 +250,22 @@ def associate_curve_candidates(
 
         left_pitches, right_pitches = left["pitches"], right["pitches"]
         shared = sorted(left_pitches & right_pitches)
+        unit = staff_records[staff_index]["unit"]
+        span_units = (right["center"][0] - left["center"][0]) / unit
+        intermediate_note_groups = sum(
+            group["staff_index"] == staff_index
+            and left["center"][0] < group["center"][0] < right["center"][0]
+            for group in groups
+        )
         if not left_pitches or not right_pitches:
             predicted_type = "unknown_curve"
             reason = "endpoint_pitch_unknown"
-        elif shared:
+        elif shared and intermediate_note_groups == 0 and span_units <= max_tie_span_units:
             predicted_type = "tie"
-            reason = "endpoint_pitch_sets_overlap"
+            reason = "same_pitch_adjacent_notes_and_tie_sized_span"
+        elif shared:
+            predicted_type = "slur"
+            reason = "same_pitch_but_nonadjacent_or_long_span"
         else:
             predicted_type = "slur"
             reason = "endpoint_pitch_sets_differ"
@@ -285,6 +299,8 @@ def associate_curve_candidates(
             "left_endpoint_score": round(float(left_score), 6),
             "right_endpoint_score": round(float(right_score), 6),
             "shared_pitch_soprano": shared,
+            "horizontal_span_units": round(float(span_units), 4),
+            "intermediate_note_group_count": int(intermediate_note_groups),
             "xml_eligible": xml_eligible,
             "xml_exclusion_reason": xml_exclusion_reason,
         }
@@ -298,6 +314,8 @@ def associate_curve_candidates(
                 "classification_confidence": round(classification_confidence, 6),
                 "left_note_group_id": int(left["index"]),
                 "right_note_group_id": int(right["index"]),
+                "xml_eligible": xml_eligible,
+                "xml_exclusion_reason": xml_exclusion_reason,
             }
         )
         if predicted_type == "unknown_curve":
@@ -320,6 +338,8 @@ def associate_curve_candidates(
         "matched_count": sum(item["association_status"] == "matched" for item in candidates),
         "unmatched_count": sum(item["association_status"] != "matched" for item in candidates),
         "relation_count": len(relations),
+        "xml_eligible_count": sum(item["xml_eligible"] for item in relations),
+        "xml_suppressed_count": sum(not item["xml_eligible"] for item in relations),
         "relations": relations,
         "candidates": candidates,
     }
@@ -440,7 +460,8 @@ def _draw_debug(image: np.ndarray, document: dict[str, Any], note_groups: list[A
     colors = {"slur": (0, 180, 0), "tie": (255, 80, 0), "unknown_curve": (0, 165, 255)}
     for candidate in document["candidates"]:
         kind = candidate.get("predicted_type", "unknown_curve")
-        color = colors.get(kind, (128, 128, 128)) if candidate["association_status"] == "matched" else (128, 128, 128)
+        xml_eligible = bool(candidate.get("xml_eligible", False))
+        color = colors.get(kind, (128, 128, 128)) if xml_eligible else (150, 150, 150)
         x0, y0, x1, y1 = (int(round(value)) for value in candidate["bbox_xyxy"])
         cv2.rectangle(canvas, (x0, y0), (x1, y1), color, 2)
         left = tuple(int(round(value)) for value in candidate["left_endpoint"])
@@ -452,7 +473,8 @@ def _draw_debug(image: np.ndarray, document: dict[str, Any], note_groups: list[A
                 center = group_centers.get(candidate[key])
                 if center:
                     cv2.line(canvas, endpoint, tuple(int(round(v)) for v in center), color, 1)
-        label = f"{kind} {candidate.get('classification_confidence', candidate['confidence']):.2f}"
+        status = "xml" if xml_eligible else "review"
+        label = f"{kind} {status} {candidate.get('classification_confidence', candidate['confidence']):.2f}"
         cv2.putText(canvas, label, (x0, max(12, y0 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
     return canvas
 
@@ -465,6 +487,7 @@ def process_page_slurs_ties(
     output_dir: str | Path,
     *,
     coordinate_scale: float | tuple[float, float] = 1.0,
+    max_tie_span_units: float = DEFAULT_MAX_TIE_SPAN_UNITS,
     visualize: bool = False,
 ) -> dict[str, Any]:
     source = Path(image_path).expanduser().resolve()
@@ -473,7 +496,12 @@ def process_page_slurs_ties(
         raise FileNotFoundError(source)
     candidates, _ = detect_curve_candidates(image, staffs, coordinate_scale)
     document = associate_curve_candidates(
-        candidates, note_groups, staffs, image_id, coordinate_scale
+        candidates,
+        note_groups,
+        staffs,
+        image_id,
+        coordinate_scale,
+        max_tie_span_units,
     )
     document["source_path"] = str(source)
     document["source_width"] = image.shape[1]

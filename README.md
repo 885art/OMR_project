@@ -104,12 +104,14 @@ python articulation_experiments/inference/preview_cached_page.py `
 ## Slur／Tie 設定
 
 Slur／tie prototype 預設啟用。它會移除五線、篩選細長弧形，再將左右端點配對到
-同一 staff 的音符群。兩端音高相同暫判為 tie，不同暫判為 slur；音高未知、端點
-不完整或信心不足的結果只記錄在 JSON，不會寫入 MusicXML。
+同一 staff 的音符群。兩端音高相同、音符相鄰且曲線跨度合理時暫判為 tie；不同
+音高或跨過其他音符時暫判為 slur。音高未知、端點不完整或信心不足的結果只記錄
+在 JSON，不會寫入 MusicXML。
 
 ```json
 "slur_tie": {
   "enabled": true,
+  "max_tie_span_units": 6.5,
   "visualize_pages": [1]
 }
 ```
@@ -120,4 +122,4 @@ Slur／tie prototype 預設啟用。它會移除五線、篩選細長弧形，�
 python slur_tie_experiments/preview_cached_page.py --piece beethoven1 --page 1
 ```
 
-目前不處理跨 system 曲線；同音高／不同音高分類也是 prototype 規則，仍需人工抽查。
+目前不處理跨 system 曲線；tie／slur 分類仍是 prototype 規則，需要人工抽查。
