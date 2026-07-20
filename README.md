@@ -2,7 +2,7 @@
 
 本程式將樂譜 PDF 轉換為 MusicXML，主辨識流程使用 OEMER segmentation model
 與既有規則，並整合 YOLO articulation detector，自動辨識 accent、staccato、
-tenuto 並配對到音符。
+tenuto 並配對到音符；目前也包含以 OpenCV 實作的保守型 slur／tie prototype。
 
 ## 環境需求
 
@@ -35,9 +35,12 @@ python pdf2musicXML.py
 string_dataset/output/beethoven1/
 ├─ beethoven1_1.xml                    # 各頁 MusicXML
 ├─ all_beethoven1_*.xml                # 合併後 MusicXML
-└─ articulations/
-   ├─ beethoven1_1.articulations.json  # 偵測及音符配對資料
-   └─ beethoven1_1.articulations.jpg   # 可視化檢查圖
+├─ articulations/
+│  ├─ beethoven1_1.articulations.json  # 偵測及音符配對資料
+│  └─ beethoven1_1.articulations.jpg   # 可視化檢查圖
+└─ slur_tie/
+   ├─ beethoven1_1.slurs_ties.json     # 曲線候選、端點配對及分類理由
+   └─ beethoven1_1.slurs_ties.jpg      # 僅設定頁會保存的檢查圖
 ```
 
 ## 執行自己的樂譜
@@ -97,3 +100,24 @@ python articulation_experiments/inference/preview_cached_page.py `
 ```
 
 本專案的 segmentation model 來源為 [OEMER](https://github.com/BreezeWhite/oemer)。
+
+## Slur／Tie 設定
+
+Slur／tie prototype 預設啟用。它會移除五線、篩選細長弧形，再將左右端點配對到
+同一 staff 的音符群。兩端音高相同暫判為 tie，不同暫判為 slur；音高未知、端點
+不完整或信心不足的結果只記錄在 JSON，不會寫入 MusicXML。
+
+```json
+"slur_tie": {
+  "enabled": true,
+  "visualize_pages": [1]
+}
+```
+
+快速測試一個既有快取頁面：
+
+```powershell
+python slur_tie_experiments/preview_cached_page.py --piece beethoven1 --page 1
+```
+
+目前不處理跨 system 曲線；同音高／不同音高分類也是 prototype 規則，仍需人工抽查。

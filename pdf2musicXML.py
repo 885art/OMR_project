@@ -35,6 +35,14 @@ from omr.articulation import (
     attach_to_music21,
     process_page_articulations,
 )
+from omr.slur_tie import (
+    add_slurs_to_stream,
+    apply_ties_to_music21,
+    finalize_ties,
+    process_page_slurs_ties,
+    register_slur_endpoints,
+    register_tie_endpoints,
+)
 
 OUTPUT_BASE_FOLDER = 'string_dataset/output/beethoven'
 
@@ -193,6 +201,8 @@ class NoteGroup:
         self.tunedLength: Fraction|None = None
         # Populated by the articulation detector before MusicXML export.
         self.articulations: List[dict] = []
+        # Populated by the conservative slur/tie detector before MusicXML export.
+        self.slur_ties: List[dict] = []
     def addRest(self, rest:Rest):
         self.restList.append(rest)
         self.updateBoxRest(rest.boundingBox)
@@ -2667,7 +2677,8 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
             result = note.Note(keyShiftedList[0], quarterLength=currLength*4)
         else:
             return flatSet, sharpSet, None
-        return flatSet, sharpSet, attach_to_music21(result, elem)
+        result = attach_to_music21(result, elem)
+        return flatSet, sharpSet, apply_ties_to_music21(result, elem)
         # actualPitch, 0: B4, 1: C5, 2: D5
     
     def parseNoteGroup(elem:NoteGroup, flatSet, sharpSet, naturalSet, currClef, linNo, trkShift = 0):
@@ -2726,7 +2737,8 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
             result = note.Note(keyLst[0], quarterLength=currLength*4)
         else:
             return flatSet, sharpSet, None # ornament
-        return flatSet, sharpSet, attach_to_music21(result, elem)
+        result = attach_to_music21(result, elem)
+        return flatSet, sharpSet, apply_ties_to_music21(result, elem)
         # actualPitch, 0: B4, 1: C5, 2: D5
     def parseRest(elem:Rest):
         restLength = float(elem.tunedLength)
@@ -2906,6 +2918,8 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
     ksBarMatNew = ksBarMatNew.astype(int)
     clefMat = clefMat.astype(int)
     tssList = [b.ts for b in barList[0]]
+    slur_registry = {}
+    tie_registry = {}
     for currBarNumber in range(numBars):
         barNumber = currBarNumber+1
         for lineNo in range(len(barList)):
@@ -2943,6 +2957,8 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
                                                                     lineNo,
                                                                     trkShift=0)
                         if currNote is not None:
+                            register_slur_endpoints(slur_registry, currNote, elem)
+                            register_tie_endpoints(tie_registry, currNote, elem)
                             measure.append(currNote)
                         else:
                             print()
@@ -2953,9 +2969,13 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
             part[lineNo%numTrack].append(measure)
     for p in part:
         score.append(p)
+    finalize_ties(tie_registry)
+    add_slurs_to_stream(score, slur_registry)
     # Part 2: with shift
     ksSharp = [set() for _ in range(numTrack)]
     ksFlat = [set() for _ in range(numTrack)] 
+    slur_registry_shifted = {}
+    tie_registry_shifted = {}
     for currBarNumber in range(numBars): # for the new one shifted
         barNumber = currBarNumber+1
         for lineNo in range(len(barList)):
@@ -2990,6 +3010,8 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
                                                                    ksBarMatNeutral[0,currBarNumber],
                                                                    lineNo)
                     if currNote is not None:
+                        register_slur_endpoints(slur_registry_shifted, currNote, elem)
+                        register_tie_endpoints(tie_registry_shifted, currNote, elem)
                         measure.append(currNote)
                     else:
                         print()
@@ -3000,6 +3022,8 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
             part2[lineNo%numTrack].append(measure)
     for p in part2:
         score2.append(p)
+    finalize_ties(tie_registry_shifted)
+    add_slurs_to_stream(score2, slur_registry_shifted)
     return score, score2, {'ksAssigned':debugXMLImg}
 
 def saveBarToCsv(imgName:str, barList:List[List[Bar]], desiredLength=1):
@@ -3683,14 +3707,14 @@ if __name__ == '__main__':
             #   far away ones can't be assigned -> do it in the 2nd round
             # tuneRhythm(noteGroupMap, stemIdxMap, noteGroupVerticallyMerged, restMap,restList,sfnClefMap,sfnClefList,beamMapImg,staffObjList)
             beamMapImg,noteGroupMap = extendNotegroupsToStaff(noteGroupMap, noteGroupVerticallyMerged,staffObjList,beamMapImg)
+            source_page = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+            omr_coordinate_scale = (
+                image.shape[1] / source_page.shape[1],
+                image.shape[0] / source_page.shape[0],
+            )
             articulation_config = config.get('articulation', {})
             if articulation_config.get('enabled', True):
                 articulation_output = os.path.join(OUTPUT_BASE_FOLDER, 'articulations')
-                source_page = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-                articulation_coordinate_scale = (
-                    image.shape[1] / source_page.shape[1],
-                    image.shape[0] / source_page.shape[0],
-                )
                 device = articulation_config.get('device', None)
                 if isinstance(device, str) and device.lower() == 'auto':
                     device = None
@@ -3701,7 +3725,7 @@ if __name__ == '__main__':
                     staffObjList,
                     articulation_output,
                     weights=articulation_config.get('weights', str(DEFAULT_ARTICULATION_WEIGHTS)),
-                    coordinate_scale=articulation_coordinate_scale,
+                    coordinate_scale=omr_coordinate_scale,
                     confidence=float(articulation_config.get('confidence', 0.25)),
                     class_confidence=articulation_config.get('class_confidence'),
                     nms_iou=float(articulation_config.get('nms_iou', 0.5)),
@@ -3713,6 +3737,23 @@ if __name__ == '__main__':
                 print(
                     f"Articulations: {articulation_document['association']['matched_count']} "
                     f"matched / {articulation_document['candidate_count']} detected"
+                )
+            slur_tie_config = config.get('slur_tie', {})
+            if slur_tie_config.get('enabled', True):
+                page_number = imgIdx + 1
+                visualize_pages = set(slur_tie_config.get('visualize_pages', [1]))
+                slur_tie_document = process_page_slurs_ties(
+                    img_path,
+                    img_name,
+                    noteGroupVerticallyMerged,
+                    staffObjList,
+                    os.path.join(OUTPUT_BASE_FOLDER, 'slur_tie'),
+                    coordinate_scale=omr_coordinate_scale,
+                    visualize=page_number in visualize_pages,
+                )
+                print(
+                    f"Slur/tie: {slur_tie_document['matched_count']} "
+                    f"matched / {slur_tie_document['candidate_count']} detected"
                 )
             barList, barRanges, numBarsPerLine = constructBar(noteGroupMap, stemIdxMap, noteGroupVerticallyMerged, restMap,restList,sfnClefMap,sfnClefList,beamMapImg,staffObjList)
             # maskImg, tsBoxes, tsBoxesFiltered, debugImages = createMask(barList, barRanges, staffObjList, image, beamMapImg)

@@ -58,5 +58,9 @@
       "staccato": 0.45,
       "tenuto": 0.45
     }
+  },
+  "slur_tie": {
+    "enabled": true,
+    "visualize_pages": [1]
   }
 }
