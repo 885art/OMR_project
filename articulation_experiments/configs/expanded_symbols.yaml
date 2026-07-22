@@ -1,0 +1,59 @@
+schema_version: 1
+seed: 20260721
+
+dataset:
+  root: articulation_experiments/outputs/yolo_dataset_expanded
+  expected_train_tiles: 4545
+  expected_val_tiles: 1236
+  expected_classes: 17
+  minimum_tenuto_bbox_height_pixels: 8
+
+training:
+  model: yolo11n.pt
+  imgsz: 1024
+  batch: 4
+  epochs: 75
+  patience: 20
+  workers: 2
+  device: 0
+  pretrained: true
+  cache: false
+  amp: true
+  deterministic: true
+  optimizer: AdamW
+  lr0: 0.001
+  lrf: 0.01
+  weight_decay: 0.0005
+  warmup_epochs: 3.0
+  plots: true
+  save: true
+  save_period: 10
+  verbose: true
+
+augmentation:
+  hsv_h: 0.0
+  hsv_s: 0.0
+  hsv_v: 0.08
+  degrees: 0.35
+  translate: 0.01
+  scale: 0.08
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.0
+  bgr: 0.0
+  mosaic: 0.0
+  mixup: 0.0
+  cutmix: 0.0
+  copy_paste: 0.0
+  erasing: 0.0
+
+validation:
+  split: val
+  batch: 4
+  workers: 2
+  plots: true
+  verbose: true
+
+output:
+  run_name: expanded_symbols_v1

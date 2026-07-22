@@ -3732,6 +3732,7 @@ if __name__ == '__main__':
                     tile_size=int(articulation_config.get('tile_size', 1024)),
                     overlap=int(articulation_config.get('overlap', 256)),
                     batch=int(articulation_config.get('batch', 4)),
+                    mapping_path=articulation_config.get('mapping'),
                     device=device,
                 )
                 print(

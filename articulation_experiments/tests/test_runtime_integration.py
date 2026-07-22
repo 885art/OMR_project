@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from omr.articulation import associate_candidates, attach_to_music21
+from articulation_experiments.inference.export_candidates import export_candidates
 
 
 class FakeStaff:
@@ -36,6 +37,33 @@ def candidate(class_name, side, bbox, confidence=0.9):
 
 
 class RuntimeIntegrationTest(unittest.TestCase):
+    def test_expanded_mapping_exports_all_detector_classes(self):
+        from pathlib import Path
+
+        merged = {
+            "image_id": "synthetic",
+            "source_width": 100,
+            "source_height": 100,
+            "predictions": [
+                {"class_id": class_id, "bbox_xyxy": [1, 2, 3, 4], "confidence": 0.9}
+                for class_id in range(17)
+            ],
+        }
+        mapping = (
+            Path(__file__).resolve().parents[1]
+            / "dataset"
+            / "class_mapping_expanded.json"
+        )
+        document = export_candidates(merged, mapping)
+        self.assertEqual(document["candidate_count"], 17)
+        self.assertEqual(
+            {item["class_name"] for item in document["candidates"]},
+            {
+                "accent", "staccato", "tenuto", "staccatissimo", "marcato",
+                "fermata", "caesura", "trill", "turn", "inverted_turn", "mordent",
+            },
+        )
+
     def test_associates_by_staff_side_and_horizontal_position(self):
         groups = [FakeGroup((95, 95, 105, 105)), FakeGroup((95, 295, 105, 305))]
         staffs = [FakeStaff((80, 90, 100, 110, 120)), FakeStaff((280, 290, 300, 310, 320))]
@@ -88,6 +116,37 @@ class RuntimeIntegrationTest(unittest.TestCase):
         self.assertIn("<accent placement=\"above\"", text)
         self.assertIn("<staccato placement=\"below\"", text)
         self.assertIn("<tenuto placement=\"above\"", text)
+
+    def test_musicxml_contains_expanded_symbols(self):
+        from music21 import note, stream
+
+        group = FakeGroup((0, 0, 10, 10))
+        group.articulations = [
+            {"class_name": "staccatissimo", "side": "above"},
+            {"class_name": "marcato", "side": "below"},
+            {"class_name": "fermata", "side": "below"},
+            {"class_name": "caesura", "side": None},
+            {"class_name": "trill", "side": "above"},
+            {"class_name": "turn", "side": "above"},
+            {"class_name": "inverted_turn", "side": "above"},
+            {"class_name": "mordent", "side": "above"},
+        ]
+        music_note = attach_to_music21(note.Note("C4"), group)
+        score = stream.Score([stream.Part([stream.Measure([music_note])])])
+        xml = score.write("musicxml")
+        with open(xml, "r", encoding="utf-8") as handle:
+            text = handle.read()
+        for token in (
+            "<staccatissimo",
+            '<strong-accent placement="below" type="down"',
+            '<fermata type="inverted"',
+            "<caesura",
+            "<trill-mark",
+            "<turn",
+            "<inverted-turn",
+            "<mordent",
+        ):
+            self.assertIn(token, text)
 
 
 if __name__ == "__main__":

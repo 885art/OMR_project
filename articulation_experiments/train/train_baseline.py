@@ -86,11 +86,15 @@ def validate_dataset(
 ) -> dict[str, Any]:
     validator = repo_root / "articulation_experiments" / "dataset" / "validate_yolo_dataset.py"
     report_path = dataset_root / "validation_report.json"
+    statistics = load_json(dataset_root / "statistics.json")
+    mapping_path = Path(statistics["class_mapping"]).expanduser().resolve()
     command = [
         sys.executable,
         str(validator),
         "--dataset-root",
         str(dataset_root),
+        "--class-mapping",
+        str(mapping_path),
         "--output",
         str(report_path),
     ]
@@ -98,7 +102,6 @@ def validate_dataset(
     if completed.returncode != 0:
         raise RuntimeError(f"Dataset validation failed with exit code {completed.returncode}")
     report = load_json(report_path)
-    statistics = load_json(dataset_root / "statistics.json")
     expected = config["dataset"]
     if not report.get("passed"):
         raise RuntimeError("Dataset validation report did not pass")
@@ -156,12 +159,13 @@ def snapshot_inputs(
     config_path: Path,
     run_dir: Path,
 ) -> dict[str, str]:
+    statistics = load_json(dataset_root / "statistics.json")
     sources = {
         "baseline_config.yaml": config_path,
         "dataset.yaml": dataset_root / "dataset.yaml",
         "dataset_statistics.json": dataset_root / "statistics.json",
         "dataset_validation_report.json": dataset_root / "validation_report.json",
-        "class_mapping.json": repo_root / "articulation_experiments" / "dataset" / "class_mapping.json",
+        "class_mapping.json": Path(statistics["class_mapping"]).expanduser().resolve(),
         "environment_report.json": repo_root / "articulation_experiments" / "outputs" / "environment_report.json",
     }
     hashes = {}

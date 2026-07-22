@@ -123,3 +123,12 @@ python slur_tie_experiments/preview_cached_page.py --piece beethoven1 --page 1
 ```
 
 目前不處理跨 system 曲線；tie／slur 分類仍是 prototype 規則，需要人工抽查。
+
+## 17 類 YOLO 擴充模型
+
+目前已另外準備 17 類 detector 的 DeepScoresV2 訓練資料與設定，新增
+staccatissimo、marcato、fermata、caesura、trill、turn、inverted turn、mordent，
+同時保留原本 accent、staccato、tenuto。舊的 6 類 baseline 不會被覆蓋。
+
+訓練方式、續訓方式與完成後的測試流程請見
+[`EXPANDED_SYMBOLS_操作說明.md`](EXPANDED_SYMBOLS_操作說明.md)。

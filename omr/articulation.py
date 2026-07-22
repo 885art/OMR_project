@@ -12,13 +12,33 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 
-SEMANTIC_CLASSES = ("accent", "staccato", "tenuto")
+SEMANTIC_CLASSES = (
+    "accent",
+    "staccato",
+    "tenuto",
+    "staccatissimo",
+    "marcato",
+    "fermata",
+    "caesura",
+    "trill",
+    "turn",
+    "inverted_turn",
+    "mordent",
+)
 DEFAULT_CLASS_CONFIDENCE = {
     "accent": 0.55,
     "staccato": 0.45,
     "tenuto": 0.45,
+    "staccatissimo": 0.40,
+    "marcato": 0.45,
+    "fermata": 0.45,
+    "caesura": 0.45,
+    "trill": 0.40,
+    "turn": 0.40,
+    "inverted_turn": 0.40,
+    "mordent": 0.40,
 }
-DEFAULT_WEIGHTS = (
+BASELINE_WEIGHTS = (
     Path(__file__).resolve().parents[1]
     / "articulation_experiments"
     / "outputs"
@@ -27,6 +47,16 @@ DEFAULT_WEIGHTS = (
     / "weights"
     / "best.pt"
 )
+EXPANDED_WEIGHTS = (
+    Path(__file__).resolve().parents[1]
+    / "articulation_experiments"
+    / "outputs"
+    / "runs"
+    / "expanded_symbols_v1"
+    / "weights"
+    / "best.pt"
+)
+DEFAULT_WEIGHTS = EXPANDED_WEIGHTS if EXPANDED_WEIGHTS.is_file() else BASELINE_WEIGHTS
 
 _MODEL_CACHE: dict[str, Any] = {}
 
@@ -231,24 +261,47 @@ def associate_candidates(
 
 
 def attach_to_music21(music21_object: Any, note_group: Any) -> Any:
-    """Copy associated articulations from a NoteGroup to a music21 note/chord."""
+    """Copy associated articulations and ornaments to a music21 note/chord."""
 
-    from music21 import articulations as m21_articulations
+    from music21 import articulations as m21_articulations, expressions as m21_expressions
 
     constructors = {
         "accent": m21_articulations.Accent,
         "staccato": m21_articulations.Staccato,
         "tenuto": m21_articulations.Tenuto,
+        "staccatissimo": m21_articulations.Staccatissimo,
+        "marcato": m21_articulations.StrongAccent,
+        "caesura": m21_articulations.Caesura,
+    }
+    expression_constructors = {
+        "trill": m21_expressions.Trill,
+        "turn": m21_expressions.Turn,
+        "inverted_turn": m21_expressions.InvertedTurn,
+        "mordent": m21_expressions.Mordent,
     }
     for record in getattr(note_group, "articulations", []):
-        constructor = constructors.get(record.get("class_name"))
-        if constructor is None:
-            continue
-        articulation = constructor()
+        class_name = record.get("class_name")
         side = record.get("side")
-        if side in {"above", "below"}:
-            articulation.placement = side
-        music21_object.articulations.append(articulation)
+        if class_name == "fermata":
+            fermata = m21_expressions.Fermata()
+            fermata.type = "inverted" if side == "below" else "upright"
+            music21_object.expressions.append(fermata)
+            continue
+        constructor = constructors.get(class_name)
+        if constructor is not None:
+            articulation = constructor()
+            if side in {"above", "below"}:
+                articulation.placement = side
+            if class_name == "marcato":
+                articulation.pointDirection = "down" if side == "below" else "up"
+            music21_object.articulations.append(articulation)
+            continue
+        expression_constructor = expression_constructors.get(class_name)
+        if expression_constructor is not None:
+            expression = expression_constructor()
+            if side in {"above", "below"} and hasattr(expression, "placement"):
+                expression.placement = side
+            music21_object.expressions.append(expression)
     return music21_object
 
 
@@ -283,6 +336,7 @@ def process_page_articulations(
     overlap: int = 256,
     batch: int = 4,
     device: Any = None,
+    mapping_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Detect, associate, persist, and visualize articulations for one page."""
 
@@ -312,7 +366,14 @@ def process_page_articulations(
         batch,
     )
     merged = merge_predictions(raw, nms_iou)
-    mapping = repo_root / "articulation_experiments" / "dataset" / "class_mapping.json"
+    if mapping_path is None:
+        class_count = len(getattr(model, "names", {}))
+        mapping_name = (
+            "class_mapping_expanded.json" if class_count == 17 else "class_mapping.json"
+        )
+        mapping = repo_root / "articulation_experiments" / "dataset" / mapping_name
+    else:
+        mapping = Path(mapping_path).expanduser().resolve()
     document = export_candidates(merged, mapping)
     thresholds = dict(DEFAULT_CLASS_CONFIDENCE)
     if class_confidence:
@@ -338,7 +399,12 @@ def process_page_articulations(
 
     canvas = page.copy()
     draw = ImageDraw.Draw(canvas)
-    colors = {"accent": "#e41a1c", "staccato": "#377eb8", "tenuto": "#984ea3"}
+    colors = {
+        "accent": "#e41a1c", "staccato": "#377eb8", "tenuto": "#984ea3",
+        "staccatissimo": "#4daf4a", "marcato": "#ff7f00", "fermata": "#a65628",
+        "caesura": "#f781bf", "trill": "#00a6a6", "turn": "#1f78b4",
+        "inverted_turn": "#6a3d9a", "mordent": "#b15928",
+    }
     for candidate in document["candidates"]:
         matched = candidate["association_status"] == "matched"
         color = colors.get(candidate["class_name"], "#ff7f00") if matched else "#999999"
