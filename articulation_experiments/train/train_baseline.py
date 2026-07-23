@@ -196,6 +196,7 @@ def train_baseline(
     training = dict(config["training"])
     training.update({key: value for key, value in overrides.items() if value is not None})
     model_name = str(training.pop("model"))
+    initial_weights = training.pop("initial_weights", None)
     training.pop("pretrained", None)
 
     if resume_path is not None:
@@ -212,7 +213,9 @@ def train_baseline(
                 f"Run already exists: {run_dir}. Use --resume with weights/last.pt."
             )
         pretrained_path = (
-            repo_root / "articulation_experiments" / "outputs" / "pretrained" / model_name
+            (repo_root / str(initial_weights)).resolve()
+            if initial_weights
+            else repo_root / "articulation_experiments" / "outputs" / "pretrained" / model_name
         )
         if not pretrained_path.is_file():
             raise FileNotFoundError(f"Missing pretrained weights: {pretrained_path}")

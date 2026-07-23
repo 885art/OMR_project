@@ -32,8 +32,10 @@ import pickle
 import itertools
 from omr.articulation import (
     DEFAULT_WEIGHTS as DEFAULT_ARTICULATION_WEIGHTS,
+    add_extended_symbols_to_stream,
     attach_to_music21,
     process_page_articulations,
+    register_extended_symbols,
 )
 from omr.slur_tie import (
     add_slurs_to_stream,
@@ -2920,6 +2922,7 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
     tssList = [b.ts for b in barList[0]]
     slur_registry = {}
     tie_registry = {}
+    extended_symbol_registry = {}
     for currBarNumber in range(numBars):
         barNumber = currBarNumber+1
         for lineNo in range(len(barList)):
@@ -2959,6 +2962,7 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
                         if currNote is not None:
                             register_slur_endpoints(slur_registry, currNote, elem)
                             register_tie_endpoints(tie_registry, currNote, elem)
+                            register_extended_symbols(extended_symbol_registry, currNote, elem)
                             measure.append(currNote)
                         else:
                             print()
@@ -2971,11 +2975,13 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
         score.append(p)
     finalize_ties(tie_registry)
     add_slurs_to_stream(score, slur_registry)
+    add_extended_symbols_to_stream(score, extended_symbol_registry)
     # Part 2: with shift
     ksSharp = [set() for _ in range(numTrack)]
     ksFlat = [set() for _ in range(numTrack)] 
     slur_registry_shifted = {}
     tie_registry_shifted = {}
+    extended_symbol_registry_shifted = {}
     for currBarNumber in range(numBars): # for the new one shifted
         barNumber = currBarNumber+1
         for lineNo in range(len(barList)):
@@ -3012,6 +3018,7 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
                     if currNote is not None:
                         register_slur_endpoints(slur_registry_shifted, currNote, elem)
                         register_tie_endpoints(tie_registry_shifted, currNote, elem)
+                        register_extended_symbols(extended_symbol_registry_shifted, currNote, elem)
                         measure.append(currNote)
                     else:
                         print()
@@ -3024,6 +3031,7 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
         score2.append(p)
     finalize_ties(tie_registry_shifted)
     add_slurs_to_stream(score2, slur_registry_shifted)
+    add_extended_symbols_to_stream(score2, extended_symbol_registry_shifted)
     return score, score2, {'ksAssigned':debugXMLImg}
 
 def saveBarToCsv(imgName:str, barList:List[List[Bar]], desiredLength=1):

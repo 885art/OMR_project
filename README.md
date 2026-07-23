@@ -1,8 +1,10 @@
 # 弦樂四重奏 OMR
 
 本程式將樂譜 PDF 轉換為 MusicXML，主辨識流程使用 OEMER segmentation model
-與既有規則，並整合 YOLO articulation detector，自動辨識 accent、staccato、
-tenuto 並配對到音符；目前也包含以 OpenCV 實作的保守型 slur／tie prototype。
+與既有規則，並整合 YOLO 樂譜符號 detector。現有已訓練權重可辨識 17 個原始
+類別（11 種語意符號）；40 類擴充版已完成資料、程式與 MusicXML 串接，訓練後
+可再辨識力度、hairpin、弓法、琶音、踏板、指法與顫音。slur／tie 則使用獨立的
+OpenCV 曲線模組處理。
 
 ## 環境需求
 
@@ -86,11 +88,16 @@ JSON 加入：
 或 `"cpu"` 強制使用 CPU。若暫時不需要 articulation，可將 `enabled` 設為
 `false`。
 
-模型權重預設位置：
+程式會依序選擇可用的最新權重：40 類擴充模型、17 類模型、最早的 6 類模型。
+40 類模型訓練完成後的位置是：
 
 ```text
-articulation_experiments/outputs/runs/baseline_v1/weights/best.pt
+articulation_experiments/outputs/runs/extended_symbols_v2/weights/best.pt
 ```
+
+若要訓練 40 類模型，雙擊 `train_extended_symbols.bat`；中斷後可用
+`resume_extended_symbols.bat` 接續。詳細內容見
+[`EXTENDED_SYMBOLS_操作說明.md`](EXTENDED_SYMBOLS_操作說明.md)。
 
 快速檢查既有快取頁面、不重新執行完整 OMR：
 

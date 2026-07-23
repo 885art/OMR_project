@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -24,7 +25,25 @@ SEMANTIC_CLASSES = (
     "turn",
     "inverted_turn",
     "mordent",
+    "dynamic",
+    "down_bow",
+    "up_bow",
+    "arpeggio",
+    "pedal_start",
+    "pedal_stop",
+    "fingering_0",
+    "fingering_1",
+    "fingering_2",
+    "fingering_3",
+    "fingering_4",
+    "fingering_5",
+    "tremolo_1",
+    "tremolo_2",
+    "tremolo_3",
+    "tremolo_4",
 )
+SPANNING_CLASSES = {"crescendo", "diminuendo"}
+DYNAMIC_LETTER_PREFIX = "dynamic_letter_"
 DEFAULT_CLASS_CONFIDENCE = {
     "accent": 0.55,
     "staccato": 0.45,
@@ -37,6 +56,24 @@ DEFAULT_CLASS_CONFIDENCE = {
     "turn": 0.40,
     "inverted_turn": 0.40,
     "mordent": 0.40,
+    "dynamic": 0.40,
+    "down_bow": 0.40,
+    "up_bow": 0.40,
+    "arpeggio": 0.40,
+    "pedal_start": 0.45,
+    "pedal_stop": 0.45,
+    "fingering_0": 0.45,
+    "fingering_1": 0.45,
+    "fingering_2": 0.45,
+    "fingering_3": 0.45,
+    "fingering_4": 0.45,
+    "fingering_5": 0.45,
+    "tremolo_1": 0.45,
+    "tremolo_2": 0.45,
+    "tremolo_3": 0.45,
+    "tremolo_4": 0.45,
+    "crescendo": 0.40,
+    "diminuendo": 0.40,
 }
 BASELINE_WEIGHTS = (
     Path(__file__).resolve().parents[1]
@@ -56,7 +93,20 @@ EXPANDED_WEIGHTS = (
     / "weights"
     / "best.pt"
 )
-DEFAULT_WEIGHTS = EXPANDED_WEIGHTS if EXPANDED_WEIGHTS.is_file() else BASELINE_WEIGHTS
+EXTENDED_WEIGHTS = (
+    Path(__file__).resolve().parents[1]
+    / "articulation_experiments"
+    / "outputs"
+    / "runs"
+    / "extended_symbols_v2"
+    / "weights"
+    / "best.pt"
+)
+DEFAULT_WEIGHTS = (
+    EXTENDED_WEIGHTS
+    if EXTENDED_WEIGHTS.is_file()
+    else EXPANDED_WEIGHTS if EXPANDED_WEIGHTS.is_file() else BASELINE_WEIGHTS
+)
 
 _MODEL_CACHE: dict[str, Any] = {}
 
@@ -101,6 +151,121 @@ def _nearest_staff_index(
     ]
     pool = horizontally_valid or list(range(len(staffs)))
     return min(pool, key=lambda index: abs(y - _staff_center(staffs[index])))
+
+
+def _coordinate_scale_pair(
+    coordinate_scale: float | tuple[float, float],
+) -> tuple[float, float]:
+    if isinstance(coordinate_scale, (tuple, list)):
+        return float(coordinate_scale[0]), float(coordinate_scale[1])
+    value = float(coordinate_scale)
+    return value, value
+
+
+def combine_dynamic_letters(
+    candidates_document: dict[str, Any],
+    staffs: list[Any],
+    coordinate_scale: float | tuple[float, float] = 1.0,
+) -> dict[str, Any]:
+    """Combine adjacent P/M/F/S/Z/R detections into musical dynamic tokens."""
+
+    scale_x, scale_y = _coordinate_scale_pair(coordinate_scale)
+    letters = []
+    retained = []
+    for candidate in candidates_document.get("candidates", []):
+        class_name = str(candidate.get("class_name", ""))
+        if not class_name.startswith(DYNAMIC_LETTER_PREFIX):
+            retained.append(candidate)
+            continue
+        source_bbox = [float(value) for value in candidate["bbox_xyxy"]]
+        scaled_bbox = [
+            source_bbox[0] * scale_x,
+            source_bbox[1] * scale_y,
+            source_bbox[2] * scale_x,
+            source_bbox[3] * scale_y,
+        ]
+        cx, cy = _bbox_center(scaled_bbox)
+        staff_index = _nearest_staff_index(cx, cy, staffs)
+        unit = _staff_unit(staffs[staff_index]) if staff_index is not None else 12.0
+        letters.append(
+            {
+                "candidate": candidate,
+                "letter": class_name.removeprefix(DYNAMIC_LETTER_PREFIX),
+                "bbox": source_bbox,
+                "scaled_bbox": scaled_bbox,
+                "cx": cx,
+                "cy": cy,
+                "staff_index": staff_index,
+                "unit": unit,
+            }
+        )
+
+    clusters: list[list[dict[str, Any]]] = []
+    for letter in sorted(
+        letters,
+        key=lambda item: (
+            item["staff_index"] if item["staff_index"] is not None else -1,
+            item["cy"],
+            item["cx"],
+        ),
+    ):
+        chosen = None
+        for cluster in reversed(clusters):
+            previous = cluster[-1]
+            if previous["staff_index"] != letter["staff_index"]:
+                continue
+            unit = max(previous["unit"], letter["unit"])
+            horizontal_gap = letter["scaled_bbox"][0] - previous["scaled_bbox"][2]
+            if -0.6 * unit <= horizontal_gap <= 1.8 * unit and abs(letter["cy"] - previous["cy"]) <= 1.3 * unit:
+                chosen = cluster
+                break
+        if chosen is None:
+            clusters.append([letter])
+        else:
+            chosen.append(letter)
+
+    valid_dynamic = re.compile(r"(?:p{1,4}|f{1,4}|m[pf]|s?f{1,3}[pz]?|r?f{1,2}z?)")
+    combined = []
+    rejected = []
+    for cluster_index, cluster in enumerate(clusters):
+        ordered = sorted(cluster, key=lambda item: item["cx"])
+        text = "".join(item["letter"] for item in ordered)
+        if valid_dynamic.fullmatch(text) is None:
+            rejected.extend(item["candidate"] for item in ordered)
+            continue
+        boxes = [item["bbox"] for item in ordered]
+        confidences = [float(item["candidate"].get("confidence", 0.0)) for item in ordered]
+        base = dict(ordered[0]["candidate"])
+        base.update(
+            {
+                "raw_class_name": "combinedDynamic",
+                "class_name": "dynamic",
+                "class_id": -1,
+                "side": None,
+                "dynamic_text": text,
+                "bbox_xyxy": [
+                    min(box[0] for box in boxes),
+                    min(box[1] for box in boxes),
+                    max(box[2] for box in boxes),
+                    max(box[3] for box in boxes),
+                ],
+                "confidence": sum(confidences) / len(confidences),
+                "source_class_ids": [
+                    int(item["candidate"].get("class_id", -1)) for item in ordered
+                ],
+                "dynamic_cluster_id": cluster_index,
+            }
+        )
+        combined.append(base)
+
+    candidates_document["dynamic_letter_detections"] = letters and [
+        item["candidate"] for item in letters
+    ] or []
+    candidates_document["rejected_dynamic_letter_detections"] = rejected
+    candidates_document["candidates"] = retained + combined
+    candidates_document["candidate_count"] = len(candidates_document["candidates"])
+    candidates_document["combined_dynamic_count"] = len(combined)
+    return candidates_document
 
 
 def associate_candidates(
@@ -159,6 +324,72 @@ def associate_candidates(
         candidate.pop("association_reason", None)
 
         semantic = str(candidate.get("class_name", ""))
+        if semantic in SPANNING_CLASSES:
+            source_bbox = candidate["bbox_xyxy"]
+            scaled_bbox = [
+                float(source_bbox[0]) * scale_x,
+                float(source_bbox[1]) * scale_y,
+                float(source_bbox[2]) * scale_x,
+                float(source_bbox[3]) * scale_y,
+            ]
+            cx, cy = _bbox_center(scaled_bbox)
+            candidate_staff = _nearest_staff_index(cx, cy, staffs)
+            pool = [
+                group
+                for group in groups
+                if candidate_staff is None
+                or group["staff_index"] is None
+                or candidate_staff == group["staff_index"]
+            ]
+            if len(pool) < 2:
+                candidate["association_status"] = "rejected"
+                candidate["association_reason"] = "not_enough_note_groups_for_span"
+                continue
+            start_group = min(
+                pool,
+                key=lambda group: abs(group["cx"] - scaled_bbox[0]) / group["unit"],
+            )
+            stop_group = min(
+                pool,
+                key=lambda group: abs(group["cx"] - scaled_bbox[2]) / group["unit"],
+            )
+            if start_group["index"] == stop_group["index"]:
+                candidate["association_status"] = "rejected"
+                candidate["association_reason"] = "span_endpoints_not_distinct"
+                continue
+            max_endpoint_distance = max_horizontal_units * 1.5
+            start_distance = abs(start_group["cx"] - scaled_bbox[0]) / start_group["unit"]
+            stop_distance = abs(stop_group["cx"] - scaled_bbox[2]) / stop_group["unit"]
+            if max(start_distance, stop_distance) > max_endpoint_distance:
+                candidate["association_status"] = "rejected"
+                candidate["association_reason"] = "span_endpoints_too_far"
+                continue
+            relation_id = f"hairpin-{candidate_index}"
+            resolved_side = "above" if cy < (start_group["cy"] + stop_group["cy"]) / 2 else "below"
+            candidate["matched_note_group_id"] = int(start_group["index"])
+            candidate["matched_note_group_ids"] = [
+                int(start_group["index"]),
+                int(stop_group["index"]),
+            ]
+            candidate["association_status"] = "matched"
+            candidate["association_score"] = round(
+                1.0 / (1.0 + start_distance + stop_distance), 6
+            )
+            for role, endpoint in (("start", start_group), ("stop", stop_group)):
+                endpoint["object"].articulations.append(
+                    {
+                        "class_name": "hairpin",
+                        "hairpin_type": semantic,
+                        "relation_id": relation_id,
+                        "role": role,
+                        "side": resolved_side,
+                        "confidence": float(candidate.get("confidence", 0.0)),
+                        "bbox_xyxy": list(candidate["bbox_xyxy"]),
+                        "candidate_index": candidate_index,
+                    }
+                )
+            continue
+
         if semantic not in SEMANTIC_CLASSES:
             candidate["association_status"] = "rejected"
             candidate["association_reason"] = "unsupported_class"
@@ -236,16 +467,18 @@ def associate_candidates(
         group = accepted["group"]["object"]
         if not hasattr(group, "articulations"):
             group.articulations = []
-        group.articulations.append(
-            {
+        record = {
                 "class_name": semantic,
-                "side": candidate.get("side"),
+                "side": candidate.get("side")
+                or ("above" if _bbox_center(candidate["bbox_xyxy"])[1] * scale_y < accepted["group"]["cy"] else "below"),
                 "confidence": float(candidate.get("confidence", 0.0)),
                 "association_score": float(candidate["association_score"]),
                 "bbox_xyxy": list(candidate["bbox_xyxy"]),
                 "candidate_index": int(accepted["candidate_index"]),
             }
-        )
+        if "dynamic_text" in candidate:
+            record["dynamic_text"] = str(candidate["dynamic_text"])
+        group.articulations.append(record)
 
     matched = sum(
         item.get("association_status") == "matched"
@@ -272,6 +505,8 @@ def attach_to_music21(music21_object: Any, note_group: Any) -> Any:
         "staccatissimo": m21_articulations.Staccatissimo,
         "marcato": m21_articulations.StrongAccent,
         "caesura": m21_articulations.Caesura,
+        "down_bow": m21_articulations.DownBow,
+        "up_bow": m21_articulations.UpBow,
     }
     expression_constructors = {
         "trill": m21_expressions.Trill,
@@ -286,6 +521,20 @@ def attach_to_music21(music21_object: Any, note_group: Any) -> Any:
             fermata = m21_expressions.Fermata()
             fermata.type = "inverted" if side == "below" else "upright"
             music21_object.expressions.append(fermata)
+            continue
+        if str(class_name).startswith("fingering_"):
+            fingering = m21_articulations.Fingering(str(class_name).removeprefix("fingering_"))
+            if side in {"above", "below"}:
+                fingering.placement = side
+            music21_object.articulations.append(fingering)
+            continue
+        if str(class_name).startswith("tremolo_"):
+            tremolo = m21_expressions.Tremolo()
+            tremolo.numberOfMarks = int(str(class_name).removeprefix("tremolo_"))
+            music21_object.expressions.append(tremolo)
+            continue
+        if class_name == "arpeggio":
+            music21_object.expressions.append(m21_expressions.ArpeggioMark())
             continue
         constructor = constructors.get(class_name)
         if constructor is not None:
@@ -303,6 +552,82 @@ def attach_to_music21(music21_object: Any, note_group: Any) -> Any:
                 expression.placement = side
             music21_object.expressions.append(expression)
     return music21_object
+
+
+def register_extended_symbols(
+    registry: dict[str, Any], music21_object: Any, note_group: Any
+) -> None:
+    """Register directions and spanners that cannot be attached to one note."""
+
+    points = registry.setdefault("points", [])
+    spans = registry.setdefault("spans", {})
+    for record in getattr(note_group, "articulations", []):
+        class_name = str(record.get("class_name", ""))
+        if class_name == "dynamic":
+            points.append(
+                {
+                    "kind": "dynamic",
+                    "text": str(record.get("dynamic_text", "p")),
+                    "side": record.get("side"),
+                    "object": music21_object,
+                }
+            )
+        elif class_name in {"pedal_start", "pedal_stop"}:
+            points.append(
+                {
+                    "kind": class_name,
+                    "side": record.get("side", "below"),
+                    "object": music21_object,
+                }
+            )
+        elif class_name == "hairpin":
+            relation_id = str(record.get("relation_id"))
+            relation = spans.setdefault(
+                relation_id,
+                {
+                    "kind": record.get("hairpin_type"),
+                    "side": record.get("side"),
+                },
+            )
+            relation[str(record.get("role"))] = music21_object
+
+
+def add_extended_symbols_to_stream(score: Any, registry: dict[str, Any]) -> None:
+    """Insert registered dynamics, pedal words, and hairpins into a score."""
+
+    from music21 import dynamics as m21_dynamics, expressions as m21_expressions, stream
+
+    for point in registry.get("points", []):
+        music_object = point["object"]
+        measure = music_object.getContextByClass(stream.Measure)
+        if measure is None:
+            continue
+        offset = float(music_object.offset)
+        if point["kind"] == "dynamic":
+            direction = m21_dynamics.Dynamic(point["text"])
+            if point.get("side") in {"above", "below"}:
+                direction.placement = point["side"]
+        else:
+            direction = m21_expressions.TextExpression(
+                "Ped." if point["kind"] == "pedal_start" else "*"
+            )
+            direction.placement = "below"
+        measure.insert(offset, direction)
+
+    for relation in registry.get("spans", {}).values():
+        start = relation.get("start")
+        stop = relation.get("stop")
+        if start is None or stop is None:
+            continue
+        constructor = (
+            m21_dynamics.Crescendo
+            if relation.get("kind") == "crescendo"
+            else m21_dynamics.Diminuendo
+        )
+        hairpin = constructor(start, stop)
+        if relation.get("side") in {"above", "below"}:
+            hairpin.placement = relation["side"]
+        score.insert(0, hairpin)
 
 
 def _load_model(weights: Path, config_dir: Path) -> Any:
@@ -368,13 +693,15 @@ def process_page_articulations(
     merged = merge_predictions(raw, nms_iou)
     if mapping_path is None:
         class_count = len(getattr(model, "names", {}))
-        mapping_name = (
-            "class_mapping_expanded.json" if class_count == 17 else "class_mapping.json"
-        )
+        mapping_name = {
+            40: "class_mapping_extended.json",
+            17: "class_mapping_expanded.json",
+        }.get(class_count, "class_mapping.json")
         mapping = repo_root / "articulation_experiments" / "dataset" / mapping_name
     else:
         mapping = Path(mapping_path).expanduser().resolve()
     document = export_candidates(merged, mapping)
+    combine_dynamic_letters(document, staffs, coordinate_scale)
     thresholds = dict(DEFAULT_CLASS_CONFIDENCE)
     if class_confidence:
         thresholds.update(
@@ -404,12 +731,16 @@ def process_page_articulations(
         "staccatissimo": "#4daf4a", "marcato": "#ff7f00", "fermata": "#a65628",
         "caesura": "#f781bf", "trill": "#00a6a6", "turn": "#1f78b4",
         "inverted_turn": "#6a3d9a", "mordent": "#b15928",
+        "dynamic": "#d62728", "crescendo": "#2ca02c", "diminuendo": "#17becf",
+        "down_bow": "#8c564b", "up_bow": "#9467bd", "arpeggio": "#bcbd22",
+        "pedal_start": "#7f7f7f", "pedal_stop": "#4d4d4d",
     }
     for candidate in document["candidates"]:
         matched = candidate["association_status"] == "matched"
         color = colors.get(candidate["class_name"], "#ff7f00") if matched else "#999999"
         draw.rectangle(candidate["bbox_xyxy"], outline=color, width=4 if matched else 2)
-        label = f"{candidate['class_name']} {candidate['confidence']:.2f}"
+        display_name = candidate.get("dynamic_text", candidate["class_name"])
+        label = f"{display_name} {candidate['confidence']:.2f}"
         if matched:
             label += f" -> NG{candidate['matched_note_group_id']}"
         draw.text((candidate["bbox_xyxy"][0], max(0, candidate["bbox_xyxy"][1] - 14)), label, fill=color)
