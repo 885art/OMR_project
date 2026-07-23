@@ -184,6 +184,7 @@ def validate_dataset_yaml(
 def source_split_context(
     source_json: Path,
     mapping_by_deep_id: dict[str, dict[str, Any]],
+    excluded_annotation_reasons: dict[str, str],
     expected_source_stats: dict[str, Any],
     issues: Issues,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]], set[str]]:
@@ -204,6 +205,39 @@ def source_split_context(
     class_instances: Counter[int] = Counter()
     class_images: dict[int, set[str]] = defaultdict(set)
     target_annotation_ids: set[str] = set()
+    excluded_annotation_ids = set(excluded_annotation_reasons)
+    for annotation_id in sorted(excluded_annotation_ids):
+        annotation = annotations.get(annotation_id)
+        if annotation is None:
+            issues.add(
+                "excluded_annotation_missing",
+                f"{source_json}:{annotation_id}",
+            )
+            continue
+        matching = [
+            str(category_id)
+            for category_id in annotation.get("cat_id", [])
+            if str(category_id) in mapping_by_deep_id
+        ]
+        if not matching:
+            issues.add(
+                "excluded_annotation_not_target",
+                f"{source_json}:{annotation_id}",
+            )
+        raw_bbox = annotation.get("a_bbox", [])
+        bbox_is_positive = (
+            isinstance(raw_bbox, (list, tuple))
+            and len(raw_bbox) == 4
+            and all(isinstance(value, (int, float)) for value in raw_bbox)
+            and float(raw_bbox[2]) > float(raw_bbox[0])
+            and float(raw_bbox[3]) > float(raw_bbox[1])
+        )
+        if bbox_is_positive:
+            issues.add(
+                "excluded_annotation_bbox_now_valid",
+                f"{source_json}:{annotation_id}: exclusion is no longer valid",
+            )
+
     for annotation_id, annotation in annotations.items():
         matching = [
             str(category_id)
@@ -217,6 +251,8 @@ def source_split_context(
                 "source_multiple_target_classes",
                 f"{source_json}:{annotation_id}: {matching}",
             )
+            continue
+        if str(annotation_id) in excluded_annotation_ids:
             continue
         target_annotation_ids.add(str(annotation_id))
         item = mapping_by_deep_id[matching[0]]
@@ -419,6 +455,7 @@ def validate_split(
     source_data: dict[str, Any],
     source_image_by_id: dict[str, dict[str, Any]],
     mapping_by_deep_id: dict[str, dict[str, Any]],
+    excluded_annotation_reasons: dict[str, str],
     class_count: int,
     split_statistics: dict[str, Any],
     configuration: dict[str, Any],
@@ -439,6 +476,31 @@ def validate_split(
         for stem, path in label_files.items()
     }
     manifest = load_json(manifest_path)
+    manifest_excluded_ids = {
+        str(value) for value in manifest.get("excluded_source_annotation_ids", [])
+    }
+    expected_excluded_ids = set(excluded_annotation_reasons)
+    if manifest_excluded_ids != expected_excluded_ids:
+        issues.add(
+            "manifest_excluded_annotation_ids_mismatch",
+            f"{manifest_path}: actual={sorted(manifest_excluded_ids)}, "
+            f"expected={sorted(expected_excluded_ids)}",
+        )
+    if manifest.get("excluded_source_annotation_reasons", {}) != (
+        excluded_annotation_reasons
+    ):
+        issues.add(
+            "manifest_excluded_annotation_reasons_mismatch",
+            str(manifest_path),
+        )
+    if int(split_statistics.get("excluded_source_annotation_count", 0)) != len(
+        expected_excluded_ids
+    ):
+        issues.add(
+            "statistics_excluded_annotation_count_mismatch",
+            f"{split}: {split_statistics.get('excluded_source_annotation_count', 0)} "
+            f"!= {len(expected_excluded_ids)}",
+        )
     for top_level_key in (
         "unassigned_annotation_ids",
         "dropped_annotation_ids",
@@ -682,6 +744,7 @@ def main() -> int:
     mapping_by_deep_id = {
         str(item["deepscores_id"]): item for item in classes
     }
+    exclusions_by_source = mapping.get("excluded_annotation_ids", {})
     expected_names = mapping["yolo_names"]
     issues = Issues(maximum_examples_per_code=args.max_examples_per_error)
     validate_dataset_yaml(dataset_root, expected_names, issues)
@@ -695,6 +758,12 @@ def main() -> int:
         source_data, image_by_id, source_filenames = source_split_context(
             source_json,
             mapping_by_deep_id,
+            {
+                str(annotation_id): str(reason)
+                for annotation_id, reason in exclusions_by_source.get(
+                    source_json.name, {}
+                ).items()
+            },
             statistics["splits"][split],
             issues,
         )
@@ -706,6 +775,12 @@ def main() -> int:
             source_data,
             image_by_id,
             mapping_by_deep_id,
+            {
+                str(annotation_id): str(reason)
+                for annotation_id, reason in exclusions_by_source.get(
+                    source_json.name, {}
+                ).items()
+            },
             len(classes),
             statistics["splits"][split],
             statistics["configuration"],

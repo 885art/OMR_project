@@ -44,20 +44,42 @@ def tiled_predict(
             tile_index += 1
     started = time.perf_counter()
     results = []
+    native_yolov9 = hasattr(model, "predict_tiles")
     for start in range(0, len(tiles), batch):
-        results.extend(model.predict(
-            source=tiles[start:start + batch], imgsz=tile_size, conf=confidence,
-            device=device, verbose=False, save=False
-        ))
+        tile_batch = tiles[start:start + batch]
+        if native_yolov9:
+            results.extend(
+                model.predict_tiles(
+                    tile_batch,
+                    confidence=confidence,
+                )
+            )
+        else:
+            results.extend(model.predict(
+                source=tile_batch, imgsz=tile_size, conf=confidence,
+                device=device, verbose=False, save=False
+            ))
     elapsed = time.perf_counter() - started
     predictions = []
     for result, (index, x, y, valid_width, valid_height) in zip(results, metadata):
-        if result.boxes is None:
-            continue
-        for box, cls, conf in zip(
-            result.boxes.xyxy.cpu().tolist(), result.boxes.cls.cpu().tolist(),
-            result.boxes.conf.cpu().tolist()
-        ):
+        if native_yolov9:
+            unpacked = (
+                (
+                    item["bbox_xyxy"],
+                    item["class_id"],
+                    item["confidence"],
+                )
+                for item in result
+            )
+        else:
+            if result.boxes is None:
+                continue
+            unpacked = zip(
+                result.boxes.xyxy.cpu().tolist(),
+                result.boxes.cls.cpu().tolist(),
+                result.boxes.conf.cpu().tolist(),
+            )
+        for box, cls, conf in unpacked:
             center_x = (box[0] + box[2]) / 2.0
             center_y = (box[1] + box[3]) / 2.0
             if not (0.0 <= center_x < valid_width and 0.0 <= center_y < valid_height):

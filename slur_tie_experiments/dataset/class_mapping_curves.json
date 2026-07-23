@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "description": "DeepScoresV2 slur and tie classes for the YOLOv9 curve detector.",
+  "deepscores_to_yolo": {
+    "121": 0,
+    "123": 1
+  },
+  "yolo_names": [
+    "slur",
+    "tie"
+  ],
+  "excluded_annotation_ids": {
+    "deepscores_train.json": {
+      "659187": "Source annotation has a zero-area bounding box.",
+      "659213": "Source annotation has a zero-area bounding box."
+    },
+    "deepscores_test.json": {
+      "971737": "Source annotation has a zero-area bounding box.",
+      "971762": "Source annotation has a zero-area bounding box."
+    }
+  },
+  "classes": [
+    {
+      "deepscores_id": 121,
+      "deepscores_name": "slur",
+      "yolo_id": 0,
+      "normalized_semantic_class": "slur",
+      "side": null
+    },
+    {
+      "deepscores_id": 123,
+      "deepscores_name": "tie",
+      "yolo_id": 1,
+      "normalized_semantic_class": "tie",
+      "side": null
+    }
+  ]
+}

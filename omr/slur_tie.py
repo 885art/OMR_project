@@ -11,6 +11,29 @@ import numpy as np
 
 DEFAULT_XML_CONFIDENCE = 0.45
 DEFAULT_MAX_TIE_SPAN_UNITS = 6.5
+YOLOV9_CURVE_WEIGHTS = (
+    Path(__file__).resolve().parents[1]
+    / "slur_tie_experiments"
+    / "outputs"
+    / "runs"
+    / "yolov9_curves_v1"
+    / "weights"
+    / "best.pt"
+)
+YOLOV9_CURVE_DATA = (
+    Path(__file__).resolve().parents[1]
+    / "slur_tie_experiments"
+    / "outputs"
+    / "yolo_dataset_curves"
+    / "dataset.yaml"
+)
+YOLOV9_CURVE_MAPPING = (
+    Path(__file__).resolve().parents[1]
+    / "slur_tie_experiments"
+    / "dataset"
+    / "class_mapping_curves.json"
+)
+_CURVE_MODEL_CACHE: dict[str, Any] = {}
 
 
 def _scale_pair(scale: float | tuple[float, float]) -> tuple[float, float]:
@@ -172,6 +195,134 @@ def detect_curve_candidates(
             }
         )
     return candidates, clean
+
+
+def yolo_boxes_to_curve_candidates(
+    detections: list[dict[str, Any]],
+    image: np.ndarray,
+    staffs: list[Any],
+    coordinate_scale: float | tuple[float, float] = 1.0,
+) -> list[dict[str, Any]]:
+    """Convert YOLO slur/tie boxes into endpoint candidates for relation logic."""
+
+    scale_x, scale_y = _scale_pair(coordinate_scale)
+    staff_records = _staff_records(staffs, scale_x, scale_y)
+    gray = (
+        cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        if image.ndim == 3
+        else image
+    )
+    converted = []
+    height, width = gray.shape[:2]
+    for detection in detections:
+        box = [float(value) for value in detection["bbox_xyxy"]]
+        x0 = max(0, min(width - 1, int(np.floor(box[0]))))
+        y0 = max(0, min(height - 1, int(np.floor(box[1]))))
+        x1 = max(x0 + 1, min(width, int(np.ceil(box[2]))))
+        y1 = max(y0 + 1, min(height, int(np.ceil(box[3]))))
+        cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        staff_index = _nearest_staff(cx, cy, staff_records)
+        if staff_index is None:
+            continue
+        staff = staff_records[staff_index]
+        direction = "above" if cy < staff["center_y"] else "below"
+        crop = gray[y0:y1, x0:x1]
+        _, ink = cv2.threshold(
+            crop, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
+        band_width = max(1, int(round(ink.shape[1] * 0.18)))
+
+        def band_y(start: int, stop: int, fallback: float) -> float:
+            ys, _ = np.where(ink[:, start:stop] > 0)
+            return float(np.median(ys) + y0) if len(ys) else fallback
+
+        fallback_y = float(y1 - 1 if direction == "above" else y0)
+        left_y = band_y(0, band_width, fallback_y)
+        right_y = band_y(max(0, ink.shape[1] - band_width), ink.shape[1], fallback_y)
+        converted.append(
+            {
+                "candidate_id": len(converted),
+                "bbox_xyxy": [x0, y0, x1, y1],
+                "left_endpoint": [x0, left_y],
+                "right_endpoint": [x1 - 1, right_y],
+                "curve_direction": direction,
+                "staff_index": int(staff_index),
+                "confidence": float(detection.get("confidence", 0.0)),
+                "detector_hint": str(detection.get("class_name", "unknown")),
+                "features": {
+                    "detector": "yolov9",
+                    "raw_class_name": detection.get("raw_class_name"),
+                },
+            }
+        )
+    return converted
+
+
+def detect_yolov9_curve_candidates(
+    image_path: str | Path,
+    image_id: str,
+    image: np.ndarray,
+    staffs: list[Any],
+    *,
+    coordinate_scale: float | tuple[float, float] = 1.0,
+    weights: str | Path = YOLOV9_CURVE_WEIGHTS,
+    data_yaml: str | Path = YOLOV9_CURVE_DATA,
+    mapping_path: str | Path = YOLOV9_CURVE_MAPPING,
+    yolov9_root: str | Path | None = None,
+    device: Any = None,
+    confidence: float = 0.25,
+    nms_iou: float = 0.5,
+    tile_size: int = 1024,
+    overlap: int = 256,
+    batch: int = 2,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Run the official YOLOv9 detector and prepare curve endpoint candidates."""
+
+    from PIL import Image
+    from articulation_experiments.inference.export_candidates import export_candidates
+    from articulation_experiments.inference.infer_tiled_page import tiled_predict
+    from articulation_experiments.inference.merge_tile_predictions import merge_predictions
+    from omr.yolov9_backend import load_yolov9_detector
+
+    weights_path = Path(weights).expanduser().resolve()
+    if not weights_path.is_file():
+        raise FileNotFoundError(f"YOLOv9 curve weights not found: {weights_path}")
+    cache_key = f"{weights_path}:{device}"
+    if cache_key not in _CURVE_MODEL_CACHE:
+        _CURVE_MODEL_CACHE[cache_key] = load_yolov9_detector(
+            weights_path,
+            Path(data_yaml).expanduser().resolve(),
+            yolov9_root=yolov9_root,
+            device=device,
+        )
+    model = _CURVE_MODEL_CACHE[cache_key]
+    with Image.open(Path(image_path).expanduser().resolve()) as opened:
+        page = opened.convert("RGB")
+    raw, elapsed = tiled_predict(
+        model,
+        page,
+        image_id,
+        str(Path(image_path).expanduser().resolve()),
+        tile_size,
+        overlap,
+        confidence,
+        device,
+        batch,
+    )
+    merged = merge_predictions(raw, nms_iou)
+    exported = export_candidates(
+        merged, Path(mapping_path).expanduser().resolve()
+    )
+    candidates = yolo_boxes_to_curve_candidates(
+        exported["candidates"], image, staffs, coordinate_scale
+    )
+    return candidates, {
+        "backend": "yolov9",
+        "raw_prediction_count": raw["prediction_count"],
+        "merged_prediction_count": merged["prediction_count"],
+        "inference_seconds": elapsed,
+        "weights": str(weights_path),
+    }
 
 
 def _group_pitch_set(group: Any) -> set[int]:
@@ -489,12 +640,49 @@ def process_page_slurs_ties(
     coordinate_scale: float | tuple[float, float] = 1.0,
     max_tie_span_units: float = DEFAULT_MAX_TIE_SPAN_UNITS,
     visualize: bool = False,
+    backend: str = "auto",
+    weights: str | Path = YOLOV9_CURVE_WEIGHTS,
+    data_yaml: str | Path = YOLOV9_CURVE_DATA,
+    mapping_path: str | Path = YOLOV9_CURVE_MAPPING,
+    yolov9_root: str | Path | None = None,
+    device: Any = None,
+    confidence: float = 0.25,
+    nms_iou: float = 0.5,
+    tile_size: int = 1024,
+    overlap: int = 256,
+    batch: int = 2,
 ) -> dict[str, Any]:
     source = Path(image_path).expanduser().resolve()
     image = cv2.imread(str(source), cv2.IMREAD_COLOR)
     if image is None:
         raise FileNotFoundError(source)
-    candidates, _ = detect_curve_candidates(image, staffs, coordinate_scale)
+    selected_backend = str(backend).lower()
+    weights_path = Path(weights).expanduser().resolve()
+    if selected_backend == "auto":
+        selected_backend = "yolov9" if weights_path.is_file() else "opencv"
+    if selected_backend == "yolov9":
+        candidates, detector_metadata = detect_yolov9_curve_candidates(
+            source,
+            image_id,
+            image,
+            staffs,
+            coordinate_scale=coordinate_scale,
+            weights=weights_path,
+            data_yaml=data_yaml,
+            mapping_path=mapping_path,
+            yolov9_root=yolov9_root,
+            device=device,
+            confidence=confidence,
+            nms_iou=nms_iou,
+            tile_size=tile_size,
+            overlap=overlap,
+            batch=batch,
+        )
+    elif selected_backend == "opencv":
+        candidates, _ = detect_curve_candidates(image, staffs, coordinate_scale)
+        detector_metadata = {"backend": "opencv"}
+    else:
+        raise ValueError(f"Unsupported slur/tie backend: {backend}")
     document = associate_curve_candidates(
         candidates,
         note_groups,
@@ -506,6 +694,7 @@ def process_page_slurs_ties(
     document["source_path"] = str(source)
     document["source_width"] = image.shape[1]
     document["source_height"] = image.shape[0]
+    document["detector"] = detector_metadata
     destination = Path(output_dir).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
     (destination / f"{image_id}.slurs_ties.json").write_text(

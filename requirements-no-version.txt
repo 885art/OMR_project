@@ -19,6 +19,7 @@ filelock
 flatbuffers
 fonttools
 fsspec
+gitpython
 huggingface-hub
 humanfriendly
 idna
@@ -49,6 +50,7 @@ onnxruntime==1.18.0
 onnxruntime-gpu==1.18.0
 opencv-python
 packaging
+pandas
 parso
 pdf2image
 pillow
@@ -59,6 +61,7 @@ psutil
 pure-eval
 pydantic
 pydantic_core
+pycocotools
 Pygments
 pyparsing
 pyreadline3
@@ -72,9 +75,13 @@ safetensors
 scikit-image
 scikit-learn
 scipy
+seaborn
+setuptools<81
 six
 stack-data
 sympy
+tensorboard
+thop
 tbb
 threadpoolctl
 tifffile

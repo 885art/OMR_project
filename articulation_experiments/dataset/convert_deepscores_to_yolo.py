@@ -123,6 +123,20 @@ def load_class_mapping(path: Path) -> dict[str, Any]:
     mapping["by_deepscores_id"] = {
         str(item["deepscores_id"]): item for item in classes
     }
+    exclusions = mapping.get("excluded_annotation_ids", {})
+    if not isinstance(exclusions, dict):
+        raise ValueError("excluded_annotation_ids must be an object keyed by source filename")
+    normalized_exclusions: dict[str, dict[str, str]] = {}
+    for source_filename, records in exclusions.items():
+        if not isinstance(records, dict):
+            raise ValueError(
+                f"excluded_annotation_ids[{source_filename!r}] must be an object"
+            )
+        normalized_exclusions[str(source_filename)] = {
+            str(annotation_id): str(reason)
+            for annotation_id, reason in records.items()
+        }
+    mapping["excluded_annotation_ids"] = normalized_exclusions
     return mapping
 
 
@@ -218,12 +232,16 @@ def build_target_annotations(
     mapping: dict[str, Any],
     counters: Counter[str],
     minimum_tenuto_bbox_height_pixels: float,
+    excluded_annotation_ids: set[str] | None = None,
 ) -> list[TargetAnnotation]:
     image_id = str(image["id"])
     image_region = BBox(0.0, 0.0, float(image["width"]), float(image["height"]))
     targets: list[TargetAnnotation] = []
+    excluded_annotation_ids = excluded_annotation_ids or set()
     for raw_annotation_id in image.get("ann_ids", []):
         annotation_id = str(raw_annotation_id)
+        if annotation_id in excluded_annotation_ids:
+            continue
         annotation = annotations.get(annotation_id)
         if annotation is None:
             counters["missing_annotation_references"] += 1
@@ -375,11 +393,35 @@ def convert_split(
     all_images = data["images"]
     images = all_images if max_images is None else all_images[:max_images]
     selected_image_ids = {str(image["id"]) for image in images}
+    excluded_records = mapping.get("excluded_annotation_ids", {}).get(
+        annotation_path.name, {}
+    )
+    excluded_annotation_ids = set(excluded_records)
+    for annotation_id in sorted(excluded_annotation_ids):
+        annotation = annotations.get(annotation_id)
+        if annotation is None:
+            raise ValueError(
+                f"Excluded annotation {annotation_id} is missing from {annotation_path}"
+            )
+        if not target_category_ids(annotation, mapping):
+            raise ValueError(
+                f"Excluded annotation {annotation_id} is not a mapped target class"
+            )
+        try:
+            excluded_bbox = BBox.from_sequence(annotation.get("a_bbox", []))
+        except (TypeError, ValueError):
+            continue
+        if excluded_bbox.is_positive:
+            raise ValueError(
+                f"Excluded annotation {annotation_id} now has a positive bounding box; "
+                "the exclusion is no longer valid"
+            )
     expected_target_ids = {
         str(annotation_id)
         for annotation_id, annotation in annotations.items()
         if str(annotation.get("img_id")) in selected_image_ids
         and target_category_ids(annotation, mapping)
+        and str(annotation_id) not in excluded_annotation_ids
     }
 
     image_output_dir = output_dir / "images" / split
@@ -417,6 +459,7 @@ def convert_split(
             mapping,
             counters,
             minimum_tenuto_bbox_height_pixels,
+            excluded_annotation_ids,
         )
         if targets:
             images_with_targets.add(str(image["id"]))
@@ -686,6 +729,8 @@ def convert_split(
         "unassigned_annotation_ids": unassigned_ids,
         "dropped_annotation_ids": dropped_ids,
         "target_annotations_missing_from_image_ann_ids": missing_from_image_records,
+        "excluded_source_annotation_ids": sorted(excluded_annotation_ids),
+        "excluded_source_annotation_reasons": excluded_records,
         "duplicate_annotation_id_count": len(duplicated_ids),
         "duplicate_extra_assignment_count": duplicate_extra_assignments,
         "tiles": manifest_tiles,
@@ -741,6 +786,7 @@ def convert_split(
         "target_annotations_missing_from_image_ann_ids": len(
             missing_from_image_records
         ),
+        "excluded_source_annotation_count": len(excluded_annotation_ids),
         "class_statistics": class_statistics,
     }
     raw_statistics = {
@@ -780,6 +826,7 @@ def combine_statistics(
         "duplicate_annotation_id_count",
         "duplicate_extra_assignment_count",
         "target_annotations_missing_from_image_ann_ids",
+        "excluded_source_annotation_count",
     )
     totals = {
         key: sum(stats[key] for stats in split_statistics.values())

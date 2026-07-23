@@ -1,0 +1,15 @@
+schema_version: 1
+yolov9_repo: ../yolov9
+python: C:/Users/885ar/anaconda3/envs/omr25-py311/python.exe
+pretrained_weights: articulation_experiments/outputs/pretrained/yolov9-s.pt
+symbol_dataset: articulation_experiments/outputs/yolo_dataset_extended/dataset.yaml
+curve_dataset: slur_tie_experiments/outputs/yolo_dataset_curves/dataset.yaml
+model_config: models/detect/yolov9-s.yaml
+hyperparameters: articulation_experiments/configs/yolov9_score_hyp.yaml
+image_size: 1024
+batch_size: 2
+workers: 2
+epochs: 60
+device: 0
+symbol_run_name: yolov9_symbols_v1
+curve_run_name: yolov9_curves_v1

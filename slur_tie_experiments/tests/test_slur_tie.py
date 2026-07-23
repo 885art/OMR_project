@@ -14,6 +14,7 @@ from omr.slur_tie import (
     finalize_ties,
     register_slur_endpoints,
     register_tie_endpoints,
+    yolo_boxes_to_curve_candidates,
 )
 
 
@@ -58,6 +59,24 @@ class SlurTieTests(unittest.TestCase):
         detected, _ = detect_curve_candidates(image, [FakeStaff()])
         self.assertGreaterEqual(len(detected), 1)
         self.assertEqual(detected[0]["curve_direction"], "above")
+
+    def test_converts_yolo_box_to_relation_candidate(self):
+        image = np.full((220, 500, 3), 255, dtype=np.uint8)
+        cv2.ellipse(image, (120, 75), (30, 10), 0, 180, 360, (0, 0, 0), 2)
+        detections = [{
+            "class_name": "slur",
+            "raw_class_name": "slur",
+            "bbox_xyxy": [85, 60, 155, 90],
+            "confidence": 0.88,
+        }]
+        converted = yolo_boxes_to_curve_candidates(
+            detections, image, [FakeStaff()]
+        )
+        self.assertEqual(len(converted), 1)
+        self.assertEqual(converted[0]["detector_hint"], "slur")
+        self.assertEqual(converted[0]["curve_direction"], "above")
+        self.assertEqual(converted[0]["staff_index"], 0)
+        self.assertAlmostEqual(converted[0]["confidence"], 0.88)
 
     def test_same_pitch_is_tie_and_different_pitch_is_slur(self):
         groups = [FakeGroup(100, 5), FakeGroup(140, 5)]

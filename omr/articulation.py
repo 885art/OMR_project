@@ -102,10 +102,30 @@ EXTENDED_WEIGHTS = (
     / "weights"
     / "best.pt"
 )
+YOLOV9_SYMBOL_WEIGHTS = (
+    Path(__file__).resolve().parents[1]
+    / "articulation_experiments"
+    / "outputs"
+    / "runs"
+    / "yolov9_symbols_v1"
+    / "weights"
+    / "best.pt"
+)
+YOLOV9_SYMBOL_DATA = (
+    Path(__file__).resolve().parents[1]
+    / "articulation_experiments"
+    / "outputs"
+    / "yolo_dataset_extended"
+    / "dataset.yaml"
+)
 DEFAULT_WEIGHTS = (
-    EXTENDED_WEIGHTS
+    YOLOV9_SYMBOL_WEIGHTS
+    if YOLOV9_SYMBOL_WEIGHTS.is_file()
+    else EXTENDED_WEIGHTS
     if EXTENDED_WEIGHTS.is_file()
-    else EXPANDED_WEIGHTS if EXPANDED_WEIGHTS.is_file() else BASELINE_WEIGHTS
+    else EXPANDED_WEIGHTS
+    if EXPANDED_WEIGHTS.is_file()
+    else BASELINE_WEIGHTS
 )
 
 _MODEL_CACHE: dict[str, Any] = {}
@@ -630,10 +650,42 @@ def add_extended_symbols_to_stream(score: Any, registry: dict[str, Any]) -> None
         score.insert(0, hairpin)
 
 
-def _load_model(weights: Path, config_dir: Path) -> Any:
+def _load_model(
+    weights: Path,
+    config_dir: Path,
+    *,
+    backend: str = "auto",
+    data_yaml: str | Path | None = None,
+    yolov9_root: str | Path | None = None,
+    device: Any = None,
+) -> Any:
     os.environ.setdefault("YOLO_CONFIG_DIR", str(config_dir))
-    cache_key = str(weights.resolve())
+    resolved_backend = str(backend).lower()
+    if resolved_backend == "auto":
+        resolved_backend = (
+            "yolov9"
+            if "yolov9" in str(weights).lower()
+            else "ultralytics"
+        )
+    cache_key = f"{resolved_backend}:{weights.resolve()}:{device}"
     if cache_key not in _MODEL_CACHE:
+        if resolved_backend == "yolov9":
+            from omr.yolov9_backend import load_yolov9_detector
+
+            dataset = (
+                Path(data_yaml).expanduser().resolve()
+                if data_yaml is not None
+                else YOLOV9_SYMBOL_DATA
+            )
+            _MODEL_CACHE[cache_key] = load_yolov9_detector(
+                weights,
+                dataset,
+                yolov9_root=yolov9_root,
+                device=device,
+            )
+            return _MODEL_CACHE[cache_key]
+        if resolved_backend != "ultralytics":
+            raise ValueError(f"Unsupported detector backend: {backend}")
         try:
             from ultralytics import YOLO
         except ImportError as exc:
@@ -662,6 +714,9 @@ def process_page_articulations(
     batch: int = 4,
     device: Any = None,
     mapping_path: str | Path | None = None,
+    backend: str = "auto",
+    data_yaml: str | Path | None = None,
+    yolov9_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Detect, associate, persist, and visualize articulations for one page."""
 
@@ -675,7 +730,14 @@ def process_page_articulations(
     if not weights_path.is_file():
         raise FileNotFoundError(f"Articulation weights not found: {weights_path}")
     config_dir = repo_root / "articulation_experiments" / "outputs" / "ultralytics_config"
-    model = _load_model(weights_path, config_dir)
+    model = _load_model(
+        weights_path,
+        config_dir,
+        backend=backend,
+        data_yaml=data_yaml,
+        yolov9_root=yolov9_root,
+        device=device,
+    )
     source = Path(image_path).expanduser().resolve()
     with Image.open(source) as opened:
         page = opened.convert("RGB")
@@ -718,6 +780,7 @@ def process_page_articulations(
     document["candidate_count"] = len(document["candidates"])
     associate_candidates(document, note_groups, staffs, coordinate_scale=coordinate_scale)
     document["inference_seconds"] = elapsed
+    document["detector_backend"] = getattr(model, "backend_name", "ultralytics")
 
     destination = Path(output_dir).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)

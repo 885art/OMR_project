@@ -1,6 +1,7 @@
 import cv2
 import glob 
 import os
+from pathlib import Path
 import numpy as np
 from scipy import stats
 from omr.part1 import runModel1
@@ -3741,6 +3742,9 @@ if __name__ == '__main__':
                     overlap=int(articulation_config.get('overlap', 256)),
                     batch=int(articulation_config.get('batch', 4)),
                     mapping_path=articulation_config.get('mapping'),
+                    backend=articulation_config.get('backend', 'auto'),
+                    data_yaml=articulation_config.get('data_yaml'),
+                    yolov9_root=articulation_config.get('yolov9_root'),
                     device=device,
                 )
                 print(
@@ -3751,6 +3755,9 @@ if __name__ == '__main__':
             if slur_tie_config.get('enabled', True):
                 page_number = imgIdx + 1
                 visualize_pages = set(slur_tie_config.get('visualize_pages', [1]))
+                curve_device = slur_tie_config.get('device', None)
+                if isinstance(curve_device, str) and curve_device.lower() == 'auto':
+                    curve_device = None
                 slur_tie_document = process_page_slurs_ties(
                     img_path,
                     img_name,
@@ -3760,6 +3767,45 @@ if __name__ == '__main__':
                     coordinate_scale=omr_coordinate_scale,
                     max_tie_span_units=float(slur_tie_config.get('max_tie_span_units', 6.5)),
                     visualize=page_number in visualize_pages,
+                    backend=slur_tie_config.get('backend', 'auto'),
+                    weights=slur_tie_config.get(
+                        'weights',
+                        str(
+                            Path(__file__).resolve().parent
+                            / 'slur_tie_experiments'
+                            / 'outputs'
+                            / 'runs'
+                            / 'yolov9_curves_v1'
+                            / 'weights'
+                            / 'best.pt'
+                        ),
+                    ),
+                    data_yaml=slur_tie_config.get(
+                        'data_yaml',
+                        str(
+                            Path(__file__).resolve().parent
+                            / 'slur_tie_experiments'
+                            / 'outputs'
+                            / 'yolo_dataset_curves'
+                            / 'dataset.yaml'
+                        ),
+                    ),
+                    mapping_path=slur_tie_config.get(
+                        'mapping',
+                        str(
+                            Path(__file__).resolve().parent
+                            / 'slur_tie_experiments'
+                            / 'dataset'
+                            / 'class_mapping_curves.json'
+                        ),
+                    ),
+                    yolov9_root=slur_tie_config.get('yolov9_root'),
+                    device=curve_device,
+                    confidence=float(slur_tie_config.get('confidence', 0.25)),
+                    nms_iou=float(slur_tie_config.get('nms_iou', 0.5)),
+                    tile_size=int(slur_tie_config.get('tile_size', 1024)),
+                    overlap=int(slur_tie_config.get('overlap', 256)),
+                    batch=int(slur_tie_config.get('batch', 2)),
                 )
                 print(
                     f"Slur/tie: {slur_tie_document['matched_count']} "
