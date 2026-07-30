@@ -274,6 +274,8 @@ def detect_yolov9_curve_candidates(
     nms_iou: float = 0.5,
     tile_size: int = 1024,
     overlap: int = 256,
+    model_input_size: int | None = None,
+    edge_policy: str = "pad",
     batch: int = 2,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run the official YOLOv9 detector and prepare curve endpoint candidates."""
@@ -308,6 +310,8 @@ def detect_yolov9_curve_candidates(
         confidence,
         device,
         batch,
+        model_input_size,
+        edge_policy,
     )
     merged = merge_predictions(raw, nms_iou)
     exported = export_candidates(
@@ -340,6 +344,7 @@ def associate_curve_candidates(
     image_id: str,
     coordinate_scale: float | tuple[float, float] = 1.0,
     max_tie_span_units: float = DEFAULT_MAX_TIE_SPAN_UNITS,
+    xml_confidence: float = DEFAULT_XML_CONFIDENCE,
 ) -> dict[str, Any]:
     """Associate curve endpoints to note groups on the same staff."""
 
@@ -429,10 +434,10 @@ def associate_curve_candidates(
             and len(left_pitches) == 1
             and left_pitches == right_pitches
         )
-        xml_eligible = structurally_eligible and classification_confidence >= DEFAULT_XML_CONFIDENCE
+        xml_eligible = structurally_eligible and classification_confidence >= xml_confidence
         if not structurally_eligible:
             xml_exclusion_reason = "unknown_or_ambiguous_chord_tie"
-        elif classification_confidence < DEFAULT_XML_CONFIDENCE:
+        elif classification_confidence < xml_confidence:
             xml_exclusion_reason = "confidence_below_xml_threshold"
         else:
             xml_exclusion_reason = None
@@ -485,6 +490,7 @@ def associate_curve_candidates(
     return {
         "schema_version": 1,
         "image_id": image_id,
+        "xml_confidence_threshold": float(xml_confidence),
         "candidate_count": len(candidates),
         "matched_count": sum(item["association_status"] == "matched" for item in candidates),
         "unmatched_count": sum(item["association_status"] != "matched" for item in candidates),
@@ -639,6 +645,7 @@ def process_page_slurs_ties(
     *,
     coordinate_scale: float | tuple[float, float] = 1.0,
     max_tie_span_units: float = DEFAULT_MAX_TIE_SPAN_UNITS,
+    xml_confidence: float = DEFAULT_XML_CONFIDENCE,
     visualize: bool = False,
     backend: str = "auto",
     weights: str | Path = YOLOV9_CURVE_WEIGHTS,
@@ -650,6 +657,8 @@ def process_page_slurs_ties(
     nms_iou: float = 0.5,
     tile_size: int = 1024,
     overlap: int = 256,
+    model_input_size: int | None = None,
+    edge_policy: str = "pad",
     batch: int = 2,
 ) -> dict[str, Any]:
     source = Path(image_path).expanduser().resolve()
@@ -676,6 +685,8 @@ def process_page_slurs_ties(
             nms_iou=nms_iou,
             tile_size=tile_size,
             overlap=overlap,
+            model_input_size=model_input_size,
+            edge_policy=edge_policy,
             batch=batch,
         )
     elif selected_backend == "opencv":
@@ -690,6 +701,7 @@ def process_page_slurs_ties(
         image_id,
         coordinate_scale,
         max_tie_span_units,
+        xml_confidence,
     )
     document["source_path"] = str(source)
     document["source_width"] = image.shape[1]

@@ -1,0 +1,32 @@
+schema_version: 1
+profile_name: tiny_symbols_v2
+purpose: improve tiny symbol recall, especially 6x6-pixel staccato marks
+
+dataset:
+  class_mapping: articulation_experiments/dataset/class_mapping_extended.json
+  classes: 40
+  source_tile_size: 512
+  overlap: 128
+  stride: 384
+  edge_policy: shift
+  model_input_size: 1024
+  edge_policy: shift
+  source_to_model_scale: 2.0
+  minimum_intersection_ratio: 0.6
+  minimum_tenuto_bbox_height_pixels: 8
+  negative_ratio: 0.25
+  padding: white_right_bottom
+
+training:
+  primary_model: official_WongKinYiu_YOLOv9-S
+  comparison_model: Ultralytics_YOLO11n
+  primary_pilot_epochs: 30
+  primary_full_epochs: 100
+  comparison_epochs: 30
+  image_size: 1024
+  seed: 20260730
+
+inference:
+  tile_size: 512
+  overlap: 128
+  model_input_size: 1024

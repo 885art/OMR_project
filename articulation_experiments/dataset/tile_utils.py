@@ -87,15 +87,30 @@ class Assignment:
         return "intersection_ratio"
 
 
-def tile_starts(length: int, tile_size: int, stride: int) -> list[int]:
-    """Return fixed-stride starts; the final tile is padded instead of shifted."""
+def tile_starts(
+    length: int,
+    tile_size: int,
+    stride: int,
+    edge_policy: str = "pad",
+) -> list[int]:
+    """Return tile starts using legacy padding or an edge-aligned final tile."""
     if length <= 0:
         raise ValueError(f"Image dimension must be positive, got {length}")
     if tile_size <= 0 or stride <= 0:
         raise ValueError("tile_size and stride must be positive")
     if stride > tile_size:
         raise ValueError("stride cannot exceed tile_size")
-    return list(range(0, length, stride))
+    if edge_policy == "pad":
+        return list(range(0, length, stride))
+    if edge_policy != "shift":
+        raise ValueError("edge_policy must be 'pad' or 'shift'")
+    if length <= tile_size:
+        return [0]
+    last_start = length - tile_size
+    starts = list(range(0, last_start + 1, stride))
+    if starts[-1] != last_start:
+        starts.append(last_start)
+    return starts
 
 
 def generate_tile_windows(
@@ -103,11 +118,12 @@ def generate_tile_windows(
     source_height: int,
     tile_size: int,
     stride: int,
+    edge_policy: str = "pad",
 ) -> list[TileWindow]:
     return [
         TileWindow(x=x, y=y, size=tile_size)
-        for y in tile_starts(source_height, tile_size, stride)
-        for x in tile_starts(source_width, tile_size, stride)
+        for y in tile_starts(source_height, tile_size, stride, edge_policy)
+        for x in tile_starts(source_width, tile_size, stride, edge_policy)
     ]
 
 

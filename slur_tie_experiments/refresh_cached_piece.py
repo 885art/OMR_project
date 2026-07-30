@@ -36,6 +36,7 @@ def main() -> int:
     parser.add_argument("--piece", default="beethoven1")
     parser.add_argument("--visualize-pages", type=int, nargs="*", default=[1])
     parser.add_argument("--max-tie-span-units", type=float, default=6.5)
+    parser.add_argument("--xml-confidence", type=float, default=0.30)
     args = parser.parse_args()
     sys.path.insert(0, str(root))
 
@@ -80,6 +81,7 @@ def main() -> int:
             curve_dir,
             coordinate_scale=scale,
             max_tie_span_units=args.max_tie_span_units,
+            xml_confidence=args.xml_confidence,
             visualize=page in set(args.visualize_pages),
         )
         totals["candidates"] += document["candidate_count"]

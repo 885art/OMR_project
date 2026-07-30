@@ -711,6 +711,8 @@ def process_page_articulations(
     nms_iou: float = 0.5,
     tile_size: int = 1024,
     overlap: int = 256,
+    model_input_size: int | None = None,
+    edge_policy: str = "pad",
     batch: int = 4,
     device: Any = None,
     mapping_path: str | Path | None = None,
@@ -751,6 +753,8 @@ def process_page_articulations(
         confidence,
         device,
         batch,
+        model_input_size,
+        edge_policy,
     )
     merged = merge_predictions(raw, nms_iou)
     if mapping_path is None:

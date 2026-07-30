@@ -88,6 +88,18 @@ class SlurTieTests(unittest.TestCase):
         result = associate_curve_candidates([candidate()], groups, [FakeStaff()], "slur")
         self.assertEqual(result["relations"][0]["predicted_type"], "slur")
 
+    def test_xml_confidence_threshold_is_configurable(self):
+        groups = [FakeGroup(100, 5), FakeGroup(140, 6)]
+        result = associate_curve_candidates(
+            [candidate()],
+            groups,
+            [FakeStaff()],
+            "threshold",
+            xml_confidence=0.95,
+        )
+        self.assertFalse(result["relations"][0]["xml_eligible"])
+        self.assertEqual(result["xml_confidence_threshold"], 0.95)
+
     def test_unknown_pitch_is_not_attached_for_xml(self):
         groups = [FakeGroup(100, None), FakeGroup(140, 6)]
         result = associate_curve_candidates([candidate()], groups, [FakeStaff()], "unknown")

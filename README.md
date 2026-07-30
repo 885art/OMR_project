@@ -178,3 +178,23 @@ feature/yolov9-migration
 
 大型 dataset、訓練輸出與權重不應提交到一般 Git commit；程式、設定、操作腳本與文件
 才會進入版本控制。
+
+## Tiny-object v2 與國網訓練
+
+目前 staccato 的 DeepScores 原始框中位數約為 `6×6 px`，小於 YOLOv9
+最細 detection feature 的 stride 8。新版資料流程因此使用：
+
+```text
+原圖切片 512×512 → 模型輸入 1024×1024
+```
+
+這會把 staccato 放大至約 `12×12 px`。訓練與推論必須同時使用相同設定，
+不能只改訓練端。
+
+本機用 dense 資料建立新版 dataset：
+
+[prepare_tiny_symbols_v2.bat](prepare_tiny_symbols_v2.bat)
+
+完整 DeepScoresV2、YOLOv9 pilot／正式訓練、YOLO11 對照及 Slurm 操作請參考：
+
+[server/README_國網訓練.md](server/README_國網訓練.md)

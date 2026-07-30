@@ -371,10 +371,12 @@ def negative_manifest_record(
 def convert_split(
     split: str,
     dataset_root: Path,
+    images_dir: Path,
     output_dir: Path,
     mapping: dict[str, Any],
     tile_size: int,
     stride: int,
+    edge_policy: str,
     minimum_intersection_ratio: float,
     minimum_tenuto_bbox_height_pixels: float,
     negative_ratio: float,
@@ -426,7 +428,7 @@ def convert_split(
 
     image_output_dir = output_dir / "images" / split
     label_output_dir = output_dir / "labels" / split
-    image_source_dir = dataset_root / "images"
+    image_source_dir = images_dir
     counters: Counter[str] = Counter()
     source_annotation_ids: set[str] = set()
     assignment_counts: Counter[str] = Counter()
@@ -482,6 +484,7 @@ def convert_split(
             source_height,
             tile_size,
             stride,
+            edge_policy,
         ):
             annotations_in_tile: list[dict[str, Any]] = []
             label_lines: list[str] = []
@@ -714,6 +717,7 @@ def convert_split(
             "tile_size": tile_size,
             "overlap": tile_size - stride,
             "stride": stride,
+            "edge_policy": edge_policy,
             "minimum_intersection_ratio": minimum_intersection_ratio,
             "minimum_tenuto_bbox_height_pixels": minimum_tenuto_bbox_height_pixels,
             "assignment_rule": "bbox center inside tile OR retained bbox area ratio >= threshold",
@@ -947,12 +951,30 @@ def parse_args() -> argparse.Namespace:
         default=repo_root / "articulation_experiments" / "outputs" / "yolo_dataset",
     )
     parser.add_argument(
+        "--images-dir",
+        type=Path,
+        help=(
+            "Directory containing source page images. Defaults to "
+            "<dataset-root>/images. This is useful when compact merged JSON "
+            "files and the complete DeepScores images live in different roots."
+        ),
+    )
+    parser.add_argument(
         "--class-mapping",
         type=Path,
         default=script_dir / "class_mapping.json",
     )
     parser.add_argument("--tile-size", type=int, default=1024)
     parser.add_argument("--overlap", type=int, default=256)
+    parser.add_argument(
+        "--edge-policy",
+        choices=("pad", "shift"),
+        default="pad",
+        help=(
+            "Legacy 'pad' keeps fixed stride and may create narrow edge tiles. "
+            "'shift' aligns the final tile to the page edge."
+        ),
+    )
     parser.add_argument("--minimum-intersection-ratio", type=float, default=0.6)
     parser.add_argument(
         "--minimum-tenuto-bbox-height-pixels",
@@ -973,10 +995,17 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     dataset_root = args.dataset_root.expanduser().resolve()
+    images_dir = (
+        args.images_dir.expanduser().resolve()
+        if args.images_dir
+        else dataset_root / "images"
+    )
     output_dir = args.output_dir.expanduser().resolve()
     class_mapping_path = args.class_mapping.expanduser().resolve()
     if not dataset_root.is_dir():
         raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
+    if not images_dir.is_dir():
+        raise FileNotFoundError(f"Source image directory does not exist: {images_dir}")
     if args.tile_size <= 0:
         raise ValueError("tile-size must be positive")
     if args.overlap < 0 or args.overlap >= args.tile_size:
@@ -1000,10 +1029,12 @@ def main() -> int:
         split_stats, split_raw = convert_split(
             split=split,
             dataset_root=dataset_root,
+            images_dir=images_dir,
             output_dir=output_dir,
             mapping=mapping,
             tile_size=args.tile_size,
             stride=stride,
+            edge_policy=args.edge_policy,
             minimum_intersection_ratio=args.minimum_intersection_ratio,
             minimum_tenuto_bbox_height_pixels=args.minimum_tenuto_bbox_height_pixels,
             negative_ratio=args.negative_ratio,
@@ -1024,12 +1055,14 @@ def main() -> int:
         "schema_version": 1,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "dataset_root": str(dataset_root),
+        "images_dir": str(images_dir),
         "output_dir": str(output_dir),
         "class_mapping": str(class_mapping_path),
         "configuration": {
             "tile_size": args.tile_size,
             "overlap": args.overlap,
             "stride": stride,
+            "edge_policy": args.edge_policy,
             "minimum_intersection_ratio": args.minimum_intersection_ratio,
             "minimum_tenuto_bbox_height_pixels": (
                 args.minimum_tenuto_bbox_height_pixels

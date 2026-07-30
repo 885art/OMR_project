@@ -105,9 +105,19 @@ def validate_dataset(
     expected = config["dataset"]
     if not report.get("passed"):
         raise RuntimeError("Dataset validation report did not pass")
-    if statistics["splits"]["train"]["tile_count"] != int(expected["expected_train_tiles"]):
+    expected_train_tiles = expected.get("expected_train_tiles")
+    if (
+        expected_train_tiles is not None
+        and statistics["splits"]["train"]["tile_count"]
+        != int(expected_train_tiles)
+    ):
         raise RuntimeError("Unexpected train tile count")
-    if statistics["splits"]["val"]["tile_count"] != int(expected["expected_val_tiles"]):
+    expected_val_tiles = expected.get("expected_val_tiles")
+    if (
+        expected_val_tiles is not None
+        and statistics["splits"]["val"]["tile_count"]
+        != int(expected_val_tiles)
+    ):
         raise RuntimeError("Unexpected validation tile count")
     actual_minimum = float(
         statistics["configuration"].get("minimum_tenuto_bbox_height_pixels", 0.0)
@@ -269,8 +279,16 @@ def train_baseline(
         "training_csv": csv_summary,
         "dataset": {
             "root": str(dataset_root),
-            "train_tiles": int(config["dataset"]["expected_train_tiles"]),
-            "val_tiles": int(config["dataset"]["expected_val_tiles"]),
+            "train_tiles": int(
+                load_json(dataset_root / "statistics.json")["splits"]["train"][
+                    "tile_count"
+                ]
+            ),
+            "val_tiles": int(
+                load_json(dataset_root / "statistics.json")["splits"]["val"][
+                    "tile_count"
+                ]
+            ),
         },
         "paths": {
             "run_dir": str(run_dir),
@@ -305,6 +323,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch", type=int)
     parser.add_argument("--device")
+    parser.add_argument("--initial-weights", type=Path)
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--preflight-only", action="store_true")
     return parser.parse_args()
@@ -324,8 +343,8 @@ def main() -> int:
     report = validate_dataset(repo_root, dataset_root, config)
     print(
         f"PREFLIGHT PASSED: dataset validation={report['passed']}, "
-        f"train={config['dataset']['expected_train_tiles']}, "
-        f"val={config['dataset']['expected_val_tiles']}",
+        f"train={report['metrics']['splits']['train']['image_count']}, "
+        f"val={report['metrics']['splits']['val']['image_count']}",
         flush=True,
     )
     if args.preflight_only:
@@ -337,7 +356,12 @@ def main() -> int:
         dataset_root=dataset_root,
         runs_dir=args.runs_dir.expanduser().resolve(),
         run_name=args.run_name or str(config["output"]["run_name"]),
-        overrides={"epochs": args.epochs, "batch": args.batch, "device": args.device},
+        overrides={
+            "epochs": args.epochs,
+            "batch": args.batch,
+            "device": args.device,
+            "initial_weights": args.initial_weights,
+        },
         resume_path=args.resume,
     )
     return 0

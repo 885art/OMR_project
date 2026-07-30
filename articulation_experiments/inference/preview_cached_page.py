@@ -42,6 +42,16 @@ def main() -> int:
     parser.add_argument("--page", type=int, default=1)
     parser.add_argument("--device", default="0")
     parser.add_argument("--confidence", type=float, default=0.25)
+    parser.add_argument("--staccato-threshold", type=float)
+    parser.add_argument("--dynamic-threshold", type=float)
+    parser.add_argument("--tile-size", type=int, default=1024)
+    parser.add_argument("--overlap", type=int, default=256)
+    parser.add_argument("--model-input-size", type=int)
+    parser.add_argument(
+        "--edge-policy",
+        choices=("pad", "shift"),
+        default="pad",
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -91,6 +101,11 @@ def main() -> int:
         data["image"].shape[0] / source_image.shape[0],
     )
     output_dir = args.output_dir.resolve() / page_id
+    class_confidence = {}
+    if args.staccato_threshold is not None:
+        class_confidence["staccato"] = args.staccato_threshold
+    if args.dynamic_threshold is not None:
+        class_confidence["dynamic"] = args.dynamic_threshold
     document = process_page_articulations(
         image_path,
         page_id,
@@ -99,6 +114,11 @@ def main() -> int:
         output_dir,
         coordinate_scale=coordinate_scale,
         confidence=args.confidence,
+        class_confidence=class_confidence or None,
+        tile_size=args.tile_size,
+        overlap=args.overlap,
+        model_input_size=args.model_input_size,
+        edge_policy=args.edge_policy,
         device=None if args.device.lower() == "auto" else args.device,
     )
     score, _, _ = legacy.exportXML(bar_list, legacy.NUM_TRACK)

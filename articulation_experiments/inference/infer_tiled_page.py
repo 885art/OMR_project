@@ -12,6 +12,14 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 try:
+    from articulation_experiments.dataset.tile_utils import tile_starts
+except ImportError:  # Preserve direct script execution from this directory.
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from articulation_experiments.dataset.tile_utils import tile_starts
+
+try:
     from .export_candidates import export_candidates
     from .merge_tile_predictions import merge_predictions
 except ImportError:  # Preserve direct script execution.
@@ -26,15 +34,22 @@ def tiled_predict(
     model: Any, image: Image.Image, image_id: str, source_path: str,
     tile_size: int, overlap: int, confidence: float, device: str | int,
     batch: int = 4,
+    model_input_size: int | None = None,
+    edge_policy: str = "pad",
 ) -> tuple[dict[str, Any], float]:
+    model_input_size = tile_size if model_input_size is None else model_input_size
+    if tile_size <= 0:
+        raise ValueError("tile_size must be positive")
+    if model_input_size <= 0:
+        raise ValueError("model_input_size must be positive")
     stride = tile_size - overlap
     if stride <= 0:
         raise ValueError("overlap must be smaller than tile size")
     width, height = image.size
     tiles, metadata = [], []
     tile_index = 0
-    for y in range(0, height, stride):
-        for x in range(0, width, stride):
+    for y in tile_starts(height, tile_size, stride, edge_policy):
+        for x in tile_starts(width, tile_size, stride, edge_policy):
             valid_width = min(tile_size, width - x)
             valid_height = min(tile_size, height - y)
             tile = Image.new("RGB", (tile_size, tile_size), "white")
@@ -48,24 +63,39 @@ def tiled_predict(
     for start in range(0, len(tiles), batch):
         tile_batch = tiles[start:start + batch]
         if native_yolov9:
+            model_batch = (
+                tile_batch
+                if model_input_size == tile_size
+                else [
+                    tile.resize(
+                        (model_input_size, model_input_size),
+                        Image.Resampling.LANCZOS,
+                    )
+                    for tile in tile_batch
+                ]
+            )
             results.extend(
                 model.predict_tiles(
-                    tile_batch,
+                    model_batch,
                     confidence=confidence,
                 )
             )
         else:
             results.extend(model.predict(
-                source=tile_batch, imgsz=tile_size, conf=confidence,
+                source=tile_batch, imgsz=model_input_size, conf=confidence,
                 device=device, verbose=False, save=False
             ))
     elapsed = time.perf_counter() - started
     predictions = []
     for result, (index, x, y, valid_width, valid_height) in zip(results, metadata):
         if native_yolov9:
+            coordinate_scale = tile_size / model_input_size
             unpacked = (
                 (
-                    item["bbox_xyxy"],
+                    [
+                        float(value) * coordinate_scale
+                        for value in item["bbox_xyxy"]
+                    ],
                     item["class_id"],
                     item["confidence"],
                 )
@@ -98,6 +128,9 @@ def tiled_predict(
     return {
         "schema_version": 1, "image_id": image_id, "source_path": source_path,
         "source_width": width, "source_height": height, "tile_size": tile_size,
+        "model_input_size": model_input_size,
+        "model_input_scale": model_input_size / tile_size,
+        "edge_policy": edge_policy,
         "overlap": overlap, "stride": stride, "tile_count": len(tiles),
         "confidence_threshold": confidence, "prediction_count": len(predictions),
         "predictions": predictions,
@@ -108,7 +141,7 @@ def draw_predictions(image: Image.Image, predictions: list[dict[str, Any]]) -> I
     canvas = image.copy()
     draw = ImageDraw.Draw(canvas)
     for p in predictions:
-        color = COLORS[int(p["class_id"])]
+        color = COLORS[int(p["class_id"]) % len(COLORS)]
         draw.rectangle(p["bbox_xyxy"], outline=color, width=3)
         draw.text((p["bbox_xyxy"][0], max(0, p["bbox_xyxy"][1] - 14)),
                   f"{p['raw_class_name']} {p['confidence']:.2f}", fill=color)
@@ -123,6 +156,19 @@ def main() -> int:
     parser.add_argument("--weights", type=Path, default=repo_root / "articulation_experiments" / "outputs" / "runs" / "baseline_v1" / "weights" / "best.pt")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--tile-size", type=int, default=1024)
+    parser.add_argument(
+        "--model-input-size",
+        type=int,
+        help=(
+            "Model tensor size. Keep equal to --tile-size for legacy weights; "
+            "use 1024 with --tile-size 512 for tiny-object-v2 weights."
+        ),
+    )
+    parser.add_argument(
+        "--edge-policy",
+        choices=("pad", "shift"),
+        default="pad",
+    )
     parser.add_argument("--overlap", type=int, default=256)
     parser.add_argument("--confidence", type=float, default=0.25)
     parser.add_argument("--nms-iou", type=float, default=0.5)
@@ -138,7 +184,8 @@ def main() -> int:
     model = YOLO(str(args.weights.expanduser().resolve()))
     raw, elapsed = tiled_predict(
         model, image, image_path.stem, str(image_path), args.tile_size,
-        args.overlap, args.confidence, args.device, args.batch
+        args.overlap, args.confidence, args.device, args.batch,
+        args.model_input_size, args.edge_policy,
     )
     merged = merge_predictions(raw, args.nms_iou)
     mapping_path = repo_root / "articulation_experiments" / "dataset" / "class_mapping.json"

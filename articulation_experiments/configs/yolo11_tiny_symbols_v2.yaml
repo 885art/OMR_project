@@ -1,0 +1,57 @@
+schema_version: 1
+seed: 20260730
+
+dataset:
+  root: articulation_experiments/outputs/yolo_dataset_extended_tiny_v2
+  expected_classes: 40
+  minimum_tenuto_bbox_height_pixels: 8
+
+training:
+  model: yolo11n.pt
+  imgsz: 1024
+  batch: 8
+  epochs: 30
+  patience: 10
+  workers: 8
+  device: 0
+  pretrained: true
+  cache: false
+  amp: true
+  deterministic: true
+  optimizer: AdamW
+  lr0: 0.0005
+  lrf: 0.01
+  weight_decay: 0.0005
+  warmup_epochs: 2.0
+  plots: true
+  save: true
+  save_period: 5
+  verbose: true
+
+augmentation:
+  hsv_h: 0.0
+  hsv_s: 0.0
+  hsv_v: 0.08
+  degrees: 0.35
+  translate: 0.01
+  scale: 0.08
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.0
+  bgr: 0.0
+  mosaic: 0.0
+  mixup: 0.0
+  cutmix: 0.0
+  copy_paste: 0.0
+  erasing: 0.0
+
+validation:
+  split: val
+  batch: 8
+  workers: 8
+  plots: true
+  verbose: true
+
+output:
+  run_name: yolo11_tiny_symbols_v2_compare

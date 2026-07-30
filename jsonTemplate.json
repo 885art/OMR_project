@@ -53,6 +53,10 @@
     "enabled": true,
     "device": "auto",
     "confidence": 0.25,
+    "tile_size": 1024,
+    "overlap": 256,
+    "model_input_size": 1024,
+    "edge_policy": "pad",
     "class_confidence": {
       "accent": 0.55,
       "staccato": 0.45,
@@ -61,7 +65,12 @@
   },
   "slur_tie": {
     "enabled": true,
+    "tile_size": 1024,
+    "overlap": 256,
+    "model_input_size": 1024,
+    "edge_policy": "pad",
     "max_tie_span_units": 6.5,
+    "xml_confidence": 0.30,
     "visualize_pages": [1]
   }
 }

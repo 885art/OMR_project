@@ -3740,6 +3740,13 @@ if __name__ == '__main__':
                     nms_iou=float(articulation_config.get('nms_iou', 0.5)),
                     tile_size=int(articulation_config.get('tile_size', 1024)),
                     overlap=int(articulation_config.get('overlap', 256)),
+                    model_input_size=int(
+                        articulation_config.get(
+                            'model_input_size',
+                            articulation_config.get('tile_size', 1024),
+                        )
+                    ),
+                    edge_policy=articulation_config.get('edge_policy', 'pad'),
                     batch=int(articulation_config.get('batch', 4)),
                     mapping_path=articulation_config.get('mapping'),
                     backend=articulation_config.get('backend', 'auto'),
@@ -3766,6 +3773,7 @@ if __name__ == '__main__':
                     os.path.join(OUTPUT_BASE_FOLDER, 'slur_tie'),
                     coordinate_scale=omr_coordinate_scale,
                     max_tie_span_units=float(slur_tie_config.get('max_tie_span_units', 6.5)),
+                    xml_confidence=float(slur_tie_config.get('xml_confidence', 0.30)),
                     visualize=page_number in visualize_pages,
                     backend=slur_tie_config.get('backend', 'auto'),
                     weights=slur_tie_config.get(
@@ -3805,6 +3813,13 @@ if __name__ == '__main__':
                     nms_iou=float(slur_tie_config.get('nms_iou', 0.5)),
                     tile_size=int(slur_tie_config.get('tile_size', 1024)),
                     overlap=int(slur_tie_config.get('overlap', 256)),
+                    model_input_size=int(
+                        slur_tie_config.get(
+                            'model_input_size',
+                            slur_tie_config.get('tile_size', 1024),
+                        )
+                    ),
+                    edge_policy=slur_tie_config.get('edge_policy', 'pad'),
                     batch=int(slur_tie_config.get('batch', 2)),
                 )
                 print(

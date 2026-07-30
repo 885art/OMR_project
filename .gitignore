@@ -6,3 +6,7 @@ slur_tie_experiments/outputs/
 string_dataset/
 !string_dataset/pdf_data/beethoven1/beethoven1.json
 !string_dataset/pdf_data/beethoven1/beethoven1.pdf
+/yolo/
+/yolov9_all_outputs/
+/*.pt
+/server/nchc_env.sh

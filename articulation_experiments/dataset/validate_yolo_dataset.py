@@ -187,12 +187,14 @@ def source_split_context(
     excluded_annotation_reasons: dict[str, str],
     expected_source_stats: dict[str, Any],
     issues: Issues,
+    max_images: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]], set[str]]:
     data = load_json(source_json)
-    images = data["images"]
+    images = data["images"] if max_images is None else data["images"][:max_images]
     annotations = data["annotations"]
     categories = data["categories"]
     image_by_id = {str(image["id"]): image for image in images}
+    selected_image_ids = set(image_by_id)
     source_filenames = {image["filename"] for image in images}
     if len(source_filenames) != len(images):
         issues.add("duplicate_source_filename", str(source_json))
@@ -239,6 +241,8 @@ def source_split_context(
             )
 
     for annotation_id, annotation in annotations.items():
+        if str(annotation.get("img_id")) not in selected_image_ids:
+            continue
         matching = [
             str(category_id)
             for category_id in annotation.get("cat_id", [])
@@ -521,6 +525,7 @@ def validate_split(
     clipped_count = 0
     tile_size = int(configuration["tile_size"])
     stride = int(configuration["stride"])
+    edge_policy = str(configuration.get("edge_policy", "pad"))
     minimum_intersection_ratio = float(configuration["minimum_intersection_ratio"])
     minimum_tenuto_bbox_height_pixels = float(
         configuration.get("minimum_tenuto_bbox_height_pixels", 0.0)
@@ -549,7 +554,16 @@ def validate_split(
         source_height = int(tile_record["source_height"])
         if x_offset < 0 or y_offset < 0 or x_offset >= source_width or y_offset >= source_height:
             issues.add("tile_offset_out_of_range", context)
-        if x_offset % stride != 0 or y_offset % stride != 0:
+        valid_x_offset = x_offset % stride == 0
+        valid_y_offset = y_offset % stride == 0
+        if edge_policy == "shift":
+            valid_x_offset = valid_x_offset or x_offset == max(
+                0, source_width - tile_size
+            )
+            valid_y_offset = valid_y_offset or y_offset == max(
+                0, source_height - tile_size
+            )
+        if not valid_x_offset or not valid_y_offset:
             issues.add("tile_offset_not_on_stride", context)
         if int(tile_record.get("tile_size", -1)) != tile_size:
             issues.add("tile_size_mismatch", context)
@@ -766,6 +780,7 @@ def main() -> int:
             },
             statistics["splits"][split],
             issues,
+            statistics["configuration"].get("max_images_per_split"),
         )
         raw_source_filenames[split] = source_filenames
         print(f"VALIDATING GENERATED {split}", flush=True)

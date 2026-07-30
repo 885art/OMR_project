@@ -37,6 +37,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=root / "slur_tie_experiments" / "outputs")
     parser.add_argument("--no-visualize", action="store_true")
     parser.add_argument("--max-tie-span-units", type=float, default=6.5)
+    parser.add_argument("--xml-confidence", type=float, default=0.30)
     args = parser.parse_args()
     sys.path.insert(0, str(root))
     import pdf2musicXML as legacy
@@ -66,6 +67,7 @@ def main() -> int:
         image_path, page_id, groups, staffs, destination,
         coordinate_scale=scale,
         max_tie_span_units=args.max_tie_span_units,
+        xml_confidence=args.xml_confidence,
         visualize=not args.no_visualize,
     )
     score, _, _ = legacy.exportXML(bar_list, legacy.NUM_TRACK)
