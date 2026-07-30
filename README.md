@@ -191,6 +191,9 @@ feature/yolov9-migration
 這會把 staccato 放大至約 `12×12 px`。訓練與推論必須同時使用相同設定，
 不能只改訓練端。
 
+國網正式模型使用精度優先的官方 YOLOv9-E；先前已完成的本機實驗仍保留
+YOLOv9-S 紀錄，不會覆寫舊權重。
+
 本機用 dense 資料建立新版 dataset：
 
 [prepare_tiny_symbols_v2.bat](prepare_tiny_symbols_v2.bat)

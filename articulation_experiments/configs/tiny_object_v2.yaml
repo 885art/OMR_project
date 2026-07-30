@@ -18,7 +18,7 @@ dataset:
   padding: white_right_bottom
 
 training:
-  primary_model: official_WongKinYiu_YOLOv9-S
+  primary_model: official_WongKinYiu_YOLOv9-E
   comparison_model: Ultralytics_YOLO11n
   primary_pilot_epochs: 30
   primary_full_epochs: 100

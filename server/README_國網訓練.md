@@ -2,7 +2,7 @@
 
 ## 已確定的設計
 
-- 主要模型：老師指定的官方 WongKinYiu YOLOv9-S。
+- 主要模型：老師指定的官方 WongKinYiu YOLOv9-E（精度優先）。
 - 比較模型：YOLO11n，只跑 30 epochs 對照，不先做完整訓練。
 - 40 類 symbol：從原樂譜切 `512×512`，訓練時放大成 `1024×1024`。
 - staccato 原始框中位數約 `6×6`，放大後約為 `12×12`。
@@ -35,7 +35,7 @@ omr/
 │     ├─ deepscores-complete-73_train.json
 │     └─ ...
 ├─ weights/
-│  ├─ yolov9-s.pt
+│  ├─ yolov9-e.pt
 │  └─ yolo11n.pt
 └─ experiments/
    ├─ datasets/
@@ -123,6 +123,10 @@ bash server/train_yolov9_symbols.sh full
 
 正式預設為 100 epochs。單張 GPU 可使用 `BATCH_SIZE=-1` 自動估算；多 GPU
 時必須手動設定總 batch size，且不要啟用 `USE_IMAGE_WEIGHTS=1`。
+
+YOLOv9-E 有約 57.3M parameters、官方表列 189.0G FLOPs，明顯大於
+YOLOv9-S 的 7.1M／26.4G。建議使用至少 24 GB VRAM 的 GPU，40 GB 或 80 GB
+會比較適合 `1024×1024` 訓練；程式不會因顯存不足自動改回 S。
 
 中斷後續訓：
 

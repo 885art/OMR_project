@@ -38,10 +38,23 @@ def main() -> int:
     parser.add_argument("--symbol-data", type=Path, required=True)
     parser.add_argument("--curve-data", type=Path)
     parser.add_argument("--expected-symbol-classes", type=int, default=40)
+    parser.add_argument(
+        "--model-config",
+        type=Path,
+        help=(
+            "YOLOv9 model YAML. Defaults to yolov9-s.yaml for compatibility "
+            "with the original local scripts."
+        ),
+    )
     args = parser.parse_args()
+    model_config = (
+        args.model_config
+        if args.model_config is not None
+        else args.yolov9_root / "models" / "detect" / "yolov9-s.yaml"
+    )
     required = {
         "official train_dual.py": args.yolov9_root / "train_dual.py",
-        "official yolov9-s.yaml": args.yolov9_root / "models" / "detect" / "yolov9-s.yaml",
+        "official model config": model_config,
         "pretrained weights": args.weights,
         "40-class dataset": args.symbol_data,
     }

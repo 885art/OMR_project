@@ -7,7 +7,8 @@ PYTHON="${PYTHON:-python}"
 YOLOV9_ROOT="${YOLOV9_ROOT:?Set YOLOV9_ROOT to WongKinYiu/yolov9}"
 DATASET_ROOT="${DATASET_ROOT:?Set DATASET_ROOT to the validated tiny-v2 dataset}"
 WORK_ROOT="${WORK_ROOT:?Set WORK_ROOT to a high-speed writable directory}"
-PRETRAINED_WEIGHTS="${PRETRAINED_WEIGHTS:?Set PRETRAINED_WEIGHTS to yolov9-s.pt}"
+PRETRAINED_WEIGHTS="${PRETRAINED_WEIGHTS:?Set PRETRAINED_WEIGHTS to yolov9-e.pt}"
+YOLOV9_VARIANT="${YOLOV9_VARIANT:-e}"
 DEVICE="${DEVICE:-0}"
 WORKERS="${WORKERS:-8}"
 BATCH_SIZE="${BATCH_SIZE:--1}"
@@ -16,7 +17,7 @@ USE_IMAGE_WEIGHTS="${USE_IMAGE_WEIGHTS:-0}"
 RUNS_DIR="${RUNS_DIR:-$WORK_ROOT/runs}"
 DATA_YAML="$DATASET_ROOT/dataset.yaml"
 HYP="$REPO_ROOT/articulation_experiments/configs/yolov9_score_hyp.yaml"
-CFG="$YOLOV9_ROOT/models/detect/yolov9-s.yaml"
+CFG="$YOLOV9_ROOT/models/detect/yolov9-$YOLOV9_VARIANT.yaml"
 LAUNCHER="$REPO_ROOT/articulation_experiments/train/yolov9_compat_launcher.py"
 
 mkdir -p "$RUNS_DIR"
@@ -48,15 +49,15 @@ fi
 case "$MODE" in
   smoke)
     EPOCHS="${EPOCHS:-1}"
-    RUN_NAME="${RUN_NAME:-yolov9_symbols_tiny_v2_smoke}"
+    RUN_NAME="${RUN_NAME:-yolov9_${YOLOV9_VARIANT}_symbols_tiny_v2_smoke}"
     ;;
   pilot)
     EPOCHS="${EPOCHS:-30}"
-    RUN_NAME="${RUN_NAME:-yolov9_symbols_tiny_v2_pilot}"
+    RUN_NAME="${RUN_NAME:-yolov9_${YOLOV9_VARIANT}_symbols_tiny_v2_pilot}"
     ;;
   full)
     EPOCHS="${EPOCHS:-100}"
-    RUN_NAME="${RUN_NAME:-yolov9_symbols_tiny_v2_full}"
+    RUN_NAME="${RUN_NAME:-yolov9_${YOLOV9_VARIANT}_symbols_tiny_v2_full}"
     ;;
   *)
     echo "Usage: $0 {smoke|pilot|full|resume|validate}" >&2
@@ -68,7 +69,8 @@ esac
   --yolov9-root "$YOLOV9_ROOT" \
   --weights "$PRETRAINED_WEIGHTS" \
   --symbol-data "$DATA_YAML" \
-  --expected-symbol-classes 40
+  --expected-symbol-classes 40 \
+  --model-config "$CFG"
 
 if [[ -e "$RUNS_DIR/$RUN_NAME" ]]; then
   echo "Run already exists: $RUNS_DIR/$RUN_NAME" >&2
