@@ -26,6 +26,7 @@ SEMANTIC_CLASSES = (
     "inverted_turn",
     "mordent",
     "dynamic",
+    "direction_text",
     "down_bow",
     "up_bow",
     "arpeggio",
@@ -57,11 +58,14 @@ DEFAULT_CLASS_CONFIDENCE = {
     "inverted_turn": 0.40,
     "mordent": 0.40,
     "dynamic": 0.40,
+    "direction_text": 0.45,
     "down_bow": 0.40,
     "up_bow": 0.40,
     "arpeggio": 0.40,
-    "pedal_start": 0.45,
-    "pedal_stop": 0.45,
+    # OCR must confirm weaker Ped. proposals; this avoids turning cresc./decresc.
+    # text into piano pedal events.
+    "pedal_start": 0.78,
+    "pedal_stop": 0.78,
     "fingering_0": 0.45,
     "fingering_1": 0.45,
     "fingering_2": 0.45,
@@ -74,6 +78,16 @@ DEFAULT_CLASS_CONFIDENCE = {
     "tremolo_4": 0.45,
     "crescendo": 0.40,
     "diminuendo": 0.40,
+    "tuplet_1": 0.45,
+    "tuplet_2": 0.45,
+    "tuplet_3": 0.45,
+    "tuplet_4": 0.45,
+    "tuplet_5": 0.45,
+    "tuplet_6": 0.45,
+    "tuplet_7": 0.45,
+    "tuplet_8": 0.45,
+    "tuplet_9": 0.45,
+    "tuplet_bracket": 0.45,
 }
 BASELINE_WEIGHTS = (
     Path(__file__).resolve().parents[1]
@@ -498,6 +512,9 @@ def associate_candidates(
             }
         if "dynamic_text" in candidate:
             record["dynamic_text"] = str(candidate["dynamic_text"])
+        if "direction_text" in candidate:
+            record["direction_text"] = str(candidate["direction_text"])
+            record["direction_type"] = str(candidate.get("direction_type", "words"))
         group.articulations.append(record)
 
     matched = sum(
@@ -592,6 +609,15 @@ def register_extended_symbols(
                     "object": music21_object,
                 }
             )
+        elif class_name == "direction_text":
+            points.append(
+                {
+                    "kind": "direction_text",
+                    "text": str(record.get("direction_text", "cresc.")),
+                    "side": record.get("side", "below"),
+                    "object": music21_object,
+                }
+            )
         elif class_name in {"pedal_start", "pedal_stop"}:
             points.append(
                 {
@@ -627,6 +653,9 @@ def add_extended_symbols_to_stream(score: Any, registry: dict[str, Any]) -> None
             direction = m21_dynamics.Dynamic(point["text"])
             if point.get("side") in {"above", "below"}:
                 direction.placement = point["side"]
+        elif point["kind"] == "direction_text":
+            direction = m21_expressions.TextExpression(point["text"])
+            direction.placement = point.get("side") or "below"
         else:
             direction = m21_expressions.TextExpression(
                 "Ped." if point["kind"] == "pedal_start" else "*"
@@ -716,9 +745,14 @@ def process_page_articulations(
     batch: int = 4,
     device: Any = None,
     mapping_path: str | Path | None = None,
+    tuplet_xml_confidence: float = 0.55,
     backend: str = "auto",
     data_yaml: str | Path | None = None,
     yolov9_root: str | Path | None = None,
+    parenthesis_robust: bool = False,
+    text_direction_ocr: bool = False,
+    easyocr_model_dir: str | Path | None = None,
+    validate_hairpins: bool = True,
 ) -> dict[str, Any]:
     """Detect, associate, persist, and visualize articulations for one page."""
 
@@ -743,23 +777,36 @@ def process_page_articulations(
     source = Path(image_path).expanduser().resolve()
     with Image.open(source) as opened:
         page = opened.convert("RGB")
-    raw, elapsed = tiled_predict(
-        model,
-        page,
-        image_id,
-        str(source),
-        tile_size,
-        overlap,
-        confidence,
-        device,
-        batch,
-        model_input_size,
-        edge_policy,
+    from articulation_experiments.inference.piano_views import tiled_predict_piano_views
+
+    raw, elapsed, view_metadata = tiled_predict_piano_views(
+        model, page, image_id, str(source), tile_size, overlap, confidence,
+        device, batch, model_input_size, edge_policy,
+        parenthesis_robust=parenthesis_robust,
     )
     merged = merge_predictions(raw, nms_iou)
+    hairpin_validation = None
+    if validate_hairpins:
+        from omr.hairpin import validate_yolo_hairpins
+
+        validated_hairpins, rejected_hairpins = validate_yolo_hairpins(
+            page, merged["predictions"], minimum_model_confidence=confidence
+        )
+        merged["predictions"] = [
+            prediction
+            for prediction in merged["predictions"]
+            if "Hairpin" not in str(prediction.get("raw_class_name", ""))
+        ] + validated_hairpins
+        merged["prediction_count"] = len(merged["predictions"])
+        hairpin_validation = {
+            "accepted_count": len(validated_hairpins),
+            "rejected_count": len(rejected_hairpins),
+            "rejected": rejected_hairpins,
+        }
     if mapping_path is None:
         class_count = len(getattr(model, "names", {}))
         mapping_name = {
+            50: "class_mapping_piano.json",
             40: "class_mapping_extended.json",
             17: "class_mapping_expanded.json",
         }.get(class_count, "class_mapping.json")
@@ -767,6 +814,19 @@ def process_page_articulations(
     else:
         mapping = Path(mapping_path).expanduser().resolve()
     document = export_candidates(merged, mapping)
+    if text_direction_ocr:
+        from omr.text_directions import apply_text_direction_ocr
+
+        apply_text_direction_ocr(
+            document,
+            page,
+            model_dir=(
+                Path(easyocr_model_dir).expanduser().resolve()
+                if easyocr_model_dir is not None
+                else repo_root.parent / "weights" / "easyocr"
+            ),
+            gpu=not (str(device).lower() == "cpu" or device == -1),
+        )
     combine_dynamic_letters(document, staffs, coordinate_scale)
     thresholds = dict(DEFAULT_CLASS_CONFIDENCE)
     if class_confidence:
@@ -783,8 +843,20 @@ def process_page_articulations(
     ]
     document["candidate_count"] = len(document["candidates"])
     associate_candidates(document, note_groups, staffs, coordinate_scale=coordinate_scale)
+    from omr.tuplet import associate_tuplet_candidates
+
+    associate_tuplet_candidates(
+        document,
+        note_groups,
+        staffs,
+        coordinate_scale=coordinate_scale,
+        xml_confidence=tuplet_xml_confidence,
+    )
     document["inference_seconds"] = elapsed
     document["detector_backend"] = getattr(model, "backend_name", "ultralytics")
+    document["hairpin_validation"] = hairpin_validation
+    view_metadata.pop("cleaned_page", None)
+    document["parenthesis_robust"] = view_metadata
 
     destination = Path(output_dir).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)

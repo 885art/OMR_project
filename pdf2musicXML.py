@@ -46,6 +46,7 @@ from omr.slur_tie import (
     register_slur_endpoints,
     register_tie_endpoints,
 )
+from omr.tuplet import apply_tuplets_to_music21
 
 OUTPUT_BASE_FOLDER = 'string_dataset/output/beethoven'
 
@@ -206,6 +207,8 @@ class NoteGroup:
         self.articulations: List[dict] = []
         # Populated by the conservative slur/tie detector before MusicXML export.
         self.slur_ties: List[dict] = []
+        # Populated by the piano-symbol detector before MusicXML export.
+        self.tuplets: List[dict] = []
     def addRest(self, rest:Rest):
         self.restList.append(rest)
         self.updateBoxRest(rest.boundingBox)
@@ -2680,7 +2683,7 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
             result = note.Note(keyShiftedList[0], quarterLength=currLength*4)
         else:
             return flatSet, sharpSet, None
-        result = attach_to_music21(result, elem)
+        result = apply_tuplets_to_music21(attach_to_music21(result, elem), elem)
         return flatSet, sharpSet, apply_ties_to_music21(result, elem)
         # actualPitch, 0: B4, 1: C5, 2: D5
     
@@ -2740,7 +2743,7 @@ def exportXML(barList:List[List[Bar]], numTrack:int, image:np.ndarray|None = Non
             result = note.Note(keyLst[0], quarterLength=currLength*4)
         else:
             return flatSet, sharpSet, None # ornament
-        result = attach_to_music21(result, elem)
+        result = apply_tuplets_to_music21(attach_to_music21(result, elem), elem)
         return flatSet, sharpSet, apply_ties_to_music21(result, elem)
         # actualPitch, 0: B4, 1: C5, 2: D5
     def parseRest(elem:Rest):
@@ -3722,6 +3725,7 @@ if __name__ == '__main__':
                 image.shape[0] / source_page.shape[0],
             )
             articulation_config = config.get('articulation', {})
+            confirmed_hairpins = []
             if articulation_config.get('enabled', True):
                 articulation_output = os.path.join(OUTPUT_BASE_FOLDER, 'articulations')
                 device = articulation_config.get('device', None)
@@ -3749,15 +3753,35 @@ if __name__ == '__main__':
                     edge_policy=articulation_config.get('edge_policy', 'pad'),
                     batch=int(articulation_config.get('batch', 4)),
                     mapping_path=articulation_config.get('mapping'),
+                    tuplet_xml_confidence=float(
+                        articulation_config.get('tuplet_xml_confidence', 0.55)
+                    ),
                     backend=articulation_config.get('backend', 'auto'),
                     data_yaml=articulation_config.get('data_yaml'),
                     yolov9_root=articulation_config.get('yolov9_root'),
+                    parenthesis_robust=bool(
+                        articulation_config.get('parenthesis_robust', True)
+                    ),
+                    text_direction_ocr=bool(
+                        articulation_config.get('text_direction_ocr', True)
+                    ),
+                    easyocr_model_dir=articulation_config.get(
+                        'easyocr_model_dir', 'C:/OMR_work/weights/easyocr'
+                    ),
+                    validate_hairpins=bool(
+                        articulation_config.get('validate_hairpins', True)
+                    ),
                     device=device,
                 )
                 print(
                     f"Articulations: {articulation_document['association']['matched_count']} "
                     f"matched / {articulation_document['candidate_count']} detected"
                 )
+                confirmed_hairpins = [
+                    candidate
+                    for candidate in articulation_document.get('candidates', [])
+                    if candidate.get('class_name') in {'crescendo', 'diminuendo'}
+                ]
             slur_tie_config = config.get('slur_tie', {})
             if slur_tie_config.get('enabled', True):
                 page_number = imgIdx + 1
@@ -3821,6 +3845,7 @@ if __name__ == '__main__':
                     ),
                     edge_policy=slur_tie_config.get('edge_policy', 'pad'),
                     batch=int(slur_tie_config.get('batch', 2)),
+                    confirmed_hairpins=confirmed_hairpins,
                 )
                 print(
                     f"Slur/tie: {slur_tie_document['matched_count']} "

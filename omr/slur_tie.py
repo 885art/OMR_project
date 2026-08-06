@@ -277,6 +277,7 @@ def detect_yolov9_curve_candidates(
     model_input_size: int | None = None,
     edge_policy: str = "pad",
     batch: int = 2,
+    confirmed_hairpins: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run the official YOLOv9 detector and prepare curve endpoint candidates."""
 
@@ -314,6 +315,18 @@ def detect_yolov9_curve_candidates(
         edge_policy,
     )
     merged = merge_predictions(raw, nms_iou)
+    from omr.curve_postprocess import merge_curve_fragments, validate_curve_candidates
+    from omr.hairpin import suppress_curve_hairpin_conflicts
+
+    curve_predictions = merge_curve_fragments(merged["predictions"])
+    curve_predictions, rejected_geometry = validate_curve_candidates(
+        page, curve_predictions
+    )
+    curve_predictions, suppressed_hairpins = suppress_curve_hairpin_conflicts(
+        curve_predictions, confirmed_hairpins or []
+    )
+    merged["predictions"] = curve_predictions
+    merged["prediction_count"] = len(curve_predictions)
     exported = export_candidates(
         merged, Path(mapping_path).expanduser().resolve()
     )
@@ -324,6 +337,8 @@ def detect_yolov9_curve_candidates(
         "backend": "yolov9",
         "raw_prediction_count": raw["prediction_count"],
         "merged_prediction_count": merged["prediction_count"],
+        "rejected_curve_geometry_count": len(rejected_geometry),
+        "suppressed_hairpin_conflict_count": len(suppressed_hairpins),
         "inference_seconds": elapsed,
         "weights": str(weights_path),
     }
@@ -660,6 +675,7 @@ def process_page_slurs_ties(
     model_input_size: int | None = None,
     edge_policy: str = "pad",
     batch: int = 2,
+    confirmed_hairpins: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     source = Path(image_path).expanduser().resolve()
     image = cv2.imread(str(source), cv2.IMREAD_COLOR)
@@ -688,6 +704,7 @@ def process_page_slurs_ties(
             model_input_size=model_input_size,
             edge_policy=edge_policy,
             batch=batch,
+            confirmed_hairpins=confirmed_hairpins,
         )
     elif selected_backend == "opencv":
         candidates, _ = detect_curve_candidates(image, staffs, coordinate_scale)

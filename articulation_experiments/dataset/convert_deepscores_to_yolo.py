@@ -140,7 +140,12 @@ def load_class_mapping(path: Path) -> dict[str, Any]:
     return mapping
 
 
-def prepare_output(output_dir: Path, splits: Iterable[str], overwrite: bool) -> None:
+def prepare_output(
+    output_dir: Path,
+    splits: Iterable[str],
+    overwrite: bool,
+    resume: bool,
+) -> None:
     owned_paths = [
         output_dir / "dataset.yaml",
         output_dir / "statistics.json",
@@ -155,12 +160,26 @@ def prepare_output(output_dir: Path, splits: Iterable[str], overwrite: bool) -> 
             ]
         )
     existing = [path for path in owned_paths if path.exists()]
-    if existing and not overwrite:
+    if overwrite and resume:
+        raise ValueError("--overwrite and --resume are mutually exclusive")
+    if existing and not overwrite and not resume:
         joined = "\n  ".join(str(path) for path in existing)
         raise FileExistsError(
-            "Converter-owned outputs already exist. Pass --overwrite to replace:\n  "
+            "Converter-owned outputs already exist. Pass --overwrite to replace "
+            "or --resume to continue:\n  "
             + joined
         )
+    if resume:
+        completed = [
+            path
+            for path in (output_dir / "dataset.yaml", output_dir / "statistics.json")
+            if path.exists()
+        ]
+        if completed:
+            raise FileExistsError(
+                "Refusing to resume a completed converter output:\n  "
+                + "\n  ".join(str(path) for path in completed)
+            )
     if overwrite:
         for path in existing:
             if path.is_dir():
@@ -333,6 +352,22 @@ def save_tile_and_label(
     )
 
 
+def reusable_tile_pair(
+    image_path: Path,
+    label_path: Path,
+    *,
+    positive: bool,
+) -> bool:
+    """Return whether an interrupted conversion left a reusable output pair."""
+    if not image_path.is_file() or image_path.stat().st_size <= 0:
+        return False
+    if not label_path.is_file():
+        return False
+    if positive and label_path.stat().st_size <= 0:
+        return False
+    return True
+
+
 def negative_manifest_record(
     candidate: NegativeCandidate,
     tile_filename: str,
@@ -384,6 +419,7 @@ def convert_split(
     png_compress_level: int,
     max_images: int | None,
     progress_every: int,
+    resume: bool,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     annotation_path = dataset_root / SPLIT_FILES[split]
     print(f"LOADING {split}: {annotation_path}", flush=True)
@@ -559,16 +595,34 @@ def convert_split(
                 )
 
         if positive_payloads:
-            with Image.open(source_path) as opened:
-                source_image = opened.convert("RGB")
+            pending_positive: set[str] = set()
+            for payload in positive_payloads:
+                _, tile_stem, _, _ = payload
+                image_path = image_output_dir / f"{tile_stem}.png"
+                label_path = label_output_dir / f"{tile_stem}.txt"
+                if not (
+                    resume
+                    and reusable_tile_pair(
+                        image_path,
+                        label_path,
+                        positive=True,
+                    )
+                ):
+                    pending_positive.add(tile_stem)
+            source_image = None
+            if pending_positive:
+                with Image.open(source_path) as opened:
+                    source_image = opened.convert("RGB")
                 if source_image.size != (source_width, source_height):
                     raise ValueError(
                         f"Image size mismatch for {source_path}: {source_image.size} != "
                         f"{(source_width, source_height)}"
                     )
-                for window, tile_stem, label_lines, annotations_in_tile in positive_payloads:
-                    image_path = image_output_dir / f"{tile_stem}.png"
-                    label_path = label_output_dir / f"{tile_stem}.txt"
+            for window, tile_stem, label_lines, annotations_in_tile in positive_payloads:
+                image_path = image_output_dir / f"{tile_stem}.png"
+                label_path = label_output_dir / f"{tile_stem}.txt"
+                if tile_stem in pending_positive:
+                    assert source_image is not None
                     save_tile_and_label(
                         source_image,
                         image_path,
@@ -579,51 +633,51 @@ def convert_split(
                         label_lines,
                         png_compress_level,
                     )
-                    positive_tile_count += 1
-                    present_classes = {
-                        item["yolo_class_id"] for item in annotations_in_tile
+                positive_tile_count += 1
+                present_classes = {
+                    item["yolo_class_id"] for item in annotations_in_tile
+                }
+                tile_class_counts.update(present_classes)
+                clipped_ids = [
+                    item["annotation_id"]
+                    for item in annotations_in_tile
+                    if item["clipped_by_tile"]
+                ]
+                unclipped_ids = [
+                    item["annotation_id"]
+                    for item in annotations_in_tile
+                    if not item["clipped_by_tile"]
+                ]
+                manifest_tiles.append(
+                    {
+                        "source_image": source_filename,
+                        "source_image_id": str(image["id"]),
+                        "split": split,
+                        "tile_filename": image_path.name,
+                        "image_path": image_path.relative_to(output_dir).as_posix(),
+                        "label_path": label_path.relative_to(output_dir).as_posix(),
+                        "tile_offset": {"x": window.x, "y": window.y},
+                        "tile_size": tile_size,
+                        "source_width": source_width,
+                        "source_height": source_height,
+                        "valid_source_region_in_tile": {
+                            "width": max(0, min(tile_size, source_width - window.x)),
+                            "height": max(0, min(tile_size, source_height - window.y)),
+                        },
+                        "padding": {
+                            "right": max(0, window.x2 - source_width),
+                            "bottom": max(0, window.y2 - source_height),
+                            "value": 255,
+                        },
+                        "is_negative": False,
+                        "annotation_ids": [
+                            item["annotation_id"] for item in annotations_in_tile
+                        ],
+                        "clipped_annotation_ids": clipped_ids,
+                        "unclipped_annotation_ids": unclipped_ids,
+                        "annotations": annotations_in_tile,
                     }
-                    tile_class_counts.update(present_classes)
-                    clipped_ids = [
-                        item["annotation_id"]
-                        for item in annotations_in_tile
-                        if item["clipped_by_tile"]
-                    ]
-                    unclipped_ids = [
-                        item["annotation_id"]
-                        for item in annotations_in_tile
-                        if not item["clipped_by_tile"]
-                    ]
-                    manifest_tiles.append(
-                        {
-                            "source_image": source_filename,
-                            "source_image_id": str(image["id"]),
-                            "split": split,
-                            "tile_filename": image_path.name,
-                            "image_path": image_path.relative_to(output_dir).as_posix(),
-                            "label_path": label_path.relative_to(output_dir).as_posix(),
-                            "tile_offset": {"x": window.x, "y": window.y},
-                            "tile_size": tile_size,
-                            "source_width": source_width,
-                            "source_height": source_height,
-                            "valid_source_region_in_tile": {
-                                "width": max(0, min(tile_size, source_width - window.x)),
-                                "height": max(0, min(tile_size, source_height - window.y)),
-                            },
-                            "padding": {
-                                "right": max(0, window.x2 - source_width),
-                                "bottom": max(0, window.y2 - source_height),
-                                "value": 255,
-                            },
-                            "is_negative": False,
-                            "annotation_ids": [
-                                item["annotation_id"] for item in annotations_in_tile
-                            ],
-                            "clipped_annotation_ids": clipped_ids,
-                            "unclipped_annotation_ids": unclipped_ids,
-                            "annotations": annotations_in_tile,
-                        }
-                    )
+                )
 
         if progress_every > 0 and (
             (image_order + 1) % progress_every == 0 or image_order + 1 == len(images)
@@ -653,16 +707,35 @@ def convert_split(
         negatives_by_image[(candidate.image_order, candidate.source_filename)].append(candidate)
     for (_, source_filename), candidates in sorted(negatives_by_image.items()):
         source_path = image_source_dir / source_filename
-        with Image.open(source_path) as opened:
-            source_image = opened.convert("RGB")
-            for candidate in candidates:
-                tile_stem = safe_tile_stem(
-                    candidate.source_filename,
-                    candidate.image_id,
-                    candidate.window,
+        candidate_outputs = []
+        for candidate in candidates:
+            tile_stem = safe_tile_stem(
+                candidate.source_filename,
+                candidate.image_id,
+                candidate.window,
+            )
+            image_path = image_output_dir / f"{tile_stem}.png"
+            label_path = label_output_dir / f"{tile_stem}.txt"
+            candidate_outputs.append((candidate, tile_stem, image_path, label_path))
+        pending_negative_stems = {
+            tile_stem
+            for _, tile_stem, image_path, label_path in candidate_outputs
+            if not (
+                resume
+                and reusable_tile_pair(
+                    image_path,
+                    label_path,
+                    positive=False,
                 )
-                image_path = image_output_dir / f"{tile_stem}.png"
-                label_path = label_output_dir / f"{tile_stem}.txt"
+            )
+        }
+        source_image = None
+        if pending_negative_stems:
+            with Image.open(source_path) as opened:
+                source_image = opened.convert("RGB")
+        for candidate, tile_stem, image_path, label_path in candidate_outputs:
+            if tile_stem in pending_negative_stems:
+                assert source_image is not None
                 save_tile_and_label(
                     source_image,
                     image_path,
@@ -673,14 +746,14 @@ def convert_split(
                     [],
                     png_compress_level,
                 )
-                record = negative_manifest_record(
-                    candidate,
-                    image_path.name,
-                    image_path.relative_to(output_dir).as_posix(),
-                    label_path.relative_to(output_dir).as_posix(),
-                )
-                record["split"] = split
-                manifest_tiles.append(record)
+            record = negative_manifest_record(
+                candidate,
+                image_path.name,
+                image_path.relative_to(output_dir).as_posix(),
+                label_path.relative_to(output_dir).as_posix(),
+            )
+            record["split"] = split
+            manifest_tiles.append(record)
 
     manifest_tiles.sort(
         key=lambda item: (
@@ -989,6 +1062,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-images-per-split", type=int)
     parser.add_argument("--progress-every", type=int, default=100)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse complete image/label pairs left by an interrupted conversion",
+    )
     return parser.parse_args()
 
 
@@ -1021,7 +1099,7 @@ def main() -> int:
 
     stride = args.tile_size - args.overlap
     mapping = load_class_mapping(class_mapping_path)
-    prepare_output(output_dir, args.splits, args.overwrite)
+    prepare_output(output_dir, args.splits, args.overwrite, args.resume)
 
     split_statistics: dict[str, dict[str, Any]] = {}
     raw_statistics: dict[str, dict[str, Any]] = {}
@@ -1042,6 +1120,7 @@ def main() -> int:
             png_compress_level=args.png_compress_level,
             max_images=args.max_images_per_split,
             progress_every=args.progress_every,
+            resume=args.resume,
         )
         split_statistics[split] = split_stats
         raw_statistics[split] = split_raw
@@ -1075,6 +1154,7 @@ def main() -> int:
             "seed": args.seed,
             "splits": args.splits,
             "max_images_per_split": args.max_images_per_split,
+            "resumed": args.resume,
             "padding": "right/bottom white padding",
         },
         "totals": totals,

@@ -1,6 +1,8 @@
 # Install a CUDA-compatible torch + torchvision build first, according to the
 # GPU image/module provided by the computing center.
+albumentations>=1.0.3,<2
 GitPython>=3.1
+ipython>=8
 matplotlib>=3.8
 numpy==1.26.4
 opencv-python-headless>=4.9

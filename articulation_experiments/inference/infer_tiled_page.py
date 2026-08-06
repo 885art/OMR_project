@@ -154,6 +154,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--weights", type=Path, default=repo_root / "articulation_experiments" / "outputs" / "runs" / "baseline_v1" / "weights" / "best.pt")
+    parser.add_argument(
+        "--backend", choices=("ultralytics", "yolov9"), default="ultralytics",
+        help="Checkpoint implementation used for inference.",
+    )
+    parser.add_argument(
+        "--data-yaml", type=Path,
+        help="Dataset YAML containing class names (required for --backend yolov9).",
+    )
+    parser.add_argument(
+        "--yolov9-root", type=Path, default=repo_root.parent / "yolov9",
+        help="Path to the official WongKinYiu/yolov9 repository.",
+    )
+    parser.add_argument(
+        "--class-mapping", type=Path,
+        help="Candidate export mapping; inferred from the loaded class count by default.",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--tile-size", type=int, default=1024)
     parser.add_argument(
@@ -175,20 +191,43 @@ def main() -> int:
     parser.add_argument("--batch", type=int, default=4)
     parser.add_argument("--device", default="0")
     args = parser.parse_args()
-    os.environ["YOLO_CONFIG_DIR"] = str(repo_root / "articulation_experiments" / "outputs" / "ultralytics_config")
-    from ultralytics import YOLO
-
     image_path = args.input.expanduser().resolve()
     with Image.open(image_path) as opened:
         image = opened.convert("RGB")
-    model = YOLO(str(args.weights.expanduser().resolve()))
+    if args.backend == "yolov9":
+        if args.data_yaml is None:
+            parser.error("--data-yaml is required with --backend yolov9")
+        from omr.yolov9_backend import load_yolov9_detector
+
+        model = load_yolov9_detector(
+            args.weights,
+            args.data_yaml,
+            yolov9_root=args.yolov9_root,
+            device=args.device,
+        )
+    else:
+        os.environ["YOLO_CONFIG_DIR"] = str(
+            repo_root / "articulation_experiments" / "outputs" / "ultralytics_config"
+        )
+        from ultralytics import YOLO
+
+        model = YOLO(str(args.weights.expanduser().resolve()))
     raw, elapsed = tiled_predict(
         model, image, image_path.stem, str(image_path), args.tile_size,
         args.overlap, args.confidence, args.device, args.batch,
         args.model_input_size, args.edge_policy,
     )
     merged = merge_predictions(raw, args.nms_iou)
-    mapping_path = repo_root / "articulation_experiments" / "dataset" / "class_mapping.json"
+    mapping_path = args.class_mapping
+    if mapping_path is None:
+        mapping_name = (
+            "class_mapping_extended.json" if len(model.names) > 13
+            else "class_mapping.json"
+        )
+        mapping_path = (
+            repo_root / "articulation_experiments" / "dataset" / mapping_name
+        )
+    mapping_path = mapping_path.expanduser().resolve()
     candidates = export_candidates(merged, mapping_path)
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

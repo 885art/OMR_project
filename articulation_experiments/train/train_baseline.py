@@ -72,7 +72,8 @@ def summarize_csv(path: Path) -> dict[str, Any]:
         "minimum_training_losses": {
             key: min(float(row[key]) for row in rows if row.get(key)) for key in loss_keys
         },
-        "best_epoch": int(float(best_row["epoch"])) + 1,
+        # Ultralytics 8.4.x writes one-based epoch numbers to results.csv.
+        "best_epoch": int(float(best_row["epoch"])),
         "best_epoch_metrics": {
             key: float(value)
             for key, value in best_row.items()
@@ -148,17 +149,25 @@ def collect_metrics(metrics: Any, class_names: dict[int, str]) -> dict[str, Any]
     recall = numeric_list(metrics.box.r)
     ap50 = numeric_list(metrics.box.ap50)
     map50_95 = numeric_list(metrics.box.maps)
+    evaluated_class_ids = [int(value) for value in metrics.box.ap_class_index]
+    position_by_class_id = {
+        class_id: position
+        for position, class_id in enumerate(evaluated_class_ids)
+    }
     per_class = {}
     for class_id, name in class_names.items():
-        p = precision[class_id]
-        r = recall[class_id]
+        position = position_by_class_id.get(class_id)
+        p = precision[position] if position is not None else 0.0
+        r = recall[position] if position is not None else 0.0
         per_class[str(class_id)] = {
             "name": name,
             "precision": p,
             "recall": r,
             "f1": 2.0 * p * r / (p + r) if p + r else 0.0,
-            "ap50": ap50[class_id],
-            "map50_95": map50_95[class_id],
+            "ap50": ap50[position] if position is not None else 0.0,
+            "map50_95": (
+                map50_95[class_id] if class_id < len(map50_95) else 0.0
+            ),
         }
     return {"aggregate": aggregate, "per_class": per_class}
 
@@ -196,9 +205,9 @@ def train_baseline(
     overrides: dict[str, Any],
     resume_path: Path | None,
 ) -> dict[str, Any]:
-    os.environ["YOLO_CONFIG_DIR"] = str(
+    os.environ.setdefault("YOLO_CONFIG_DIR", str(
         repo_root / "articulation_experiments" / "outputs" / "ultralytics_config"
-    )
+    ))
     from ultralytics import YOLO
 
     started_at = datetime.now(timezone.utc)

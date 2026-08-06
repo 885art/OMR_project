@@ -8,5 +8,6 @@ string_dataset/
 !string_dataset/pdf_data/beethoven1/beethoven1.pdf
 /yolo/
 /yolov9_all_outputs/
+/Ultralytics/
 /*.pt
 /server/nchc_env.sh

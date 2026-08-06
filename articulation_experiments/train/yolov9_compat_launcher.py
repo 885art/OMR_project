@@ -9,6 +9,19 @@ import sys
 from pathlib import Path
 
 import torch
+from PIL import ImageFont
+
+
+def patch_pillow_font_getsize() -> None:
+    """Restore the legacy Pillow API used by the official YOLOv9 plots."""
+    if hasattr(ImageFont.FreeTypeFont, "getsize"):
+        return
+
+    def getsize(font, text, *args, **kwargs):
+        left, top, right, bottom = font.getbbox(text, *args, **kwargs)
+        return right - left, bottom - top
+
+    ImageFont.FreeTypeFont.getsize = getsize
 
 
 def main() -> int:
@@ -35,6 +48,7 @@ def main() -> int:
         return original_load(*load_args, **load_kwargs)
 
     torch.load = compatible_load
+    patch_pillow_font_getsize()
     sys.argv = [str(script), *forwarded]
     runpy.run_path(str(script), run_name="__main__")
     return 0

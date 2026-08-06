@@ -129,3 +129,40 @@ def test_complete_shards_are_deduplicated_by_page(tmp_path: Path) -> None:
     assert len(document["annotations"]) == 1
     assert statistics["unique_page_count"] == 1
     assert statistics["counters"]["duplicate_page_occurrences"] == 1
+
+
+def test_complete_merge_can_use_asymmetric_available_shards(tmp_path: Path) -> None:
+    classes = [
+        {
+            "deepscores_id": 73,
+            "deepscores_name": "articStaccatoAbove",
+            "yolo_id": 0,
+        },
+        {
+            "deepscores_id": 74,
+            "deepscores_name": "articStaccatoBelow",
+            "yolo_id": 1,
+        },
+    ]
+    write_shard(
+        tmp_path / "deepscores-complete-12_test.json",
+        category_id=73,
+        image_id=2,
+        filename="available-test-page.png",
+        annotation_id=101,
+    )
+
+    document, statistics = merge_split(
+        tmp_path,
+        "test",
+        classes,
+        {"73", "74"},
+        max_shards=None,
+        max_images_per_shard=None,
+        all_available_shards=True,
+    )
+
+    assert len(document["images"]) == 1
+    assert len(document["annotations"]) == 1
+    assert statistics["source_shard_count"] == 1
+    assert statistics["shard_selection"] == "all_available"

@@ -10,6 +10,7 @@ from omr.articulation import (
     register_extended_symbols,
 )
 from articulation_experiments.inference.export_candidates import export_candidates
+from omr.tuplet import associate_tuplet_candidates, apply_tuplets_to_music21
 
 
 class FakeStaff:
@@ -27,6 +28,7 @@ class FakeGroup:
         self.noteBoxes = [bbox]
         self.boundingBox = bbox
         self.articulations = []
+        self.tuplets = []
 
 
 def candidate(class_name, side, bbox, confidence=0.9):
@@ -85,6 +87,42 @@ class RuntimeIntegrationTest(unittest.TestCase):
                 "fermata", "caesura", "trill", "turn", "inverted_turn", "mordent",
             },
         )
+
+    def test_piano_mapping_exports_tuplet_classes(self):
+        from pathlib import Path
+
+        merged = {
+            "image_id": "synthetic",
+            "source_width": 100,
+            "source_height": 100,
+            "predictions": [
+                {"class_id": class_id, "bbox_xyxy": [1, 2, 3, 4], "confidence": 0.9}
+                for class_id in range(50)
+            ],
+        }
+        mapping = Path(__file__).resolve().parents[1] / "dataset" / "class_mapping_piano.json"
+        document = export_candidates(merged, mapping)
+        self.assertEqual(document["candidate_count"], 50)
+        self.assertIn("tuplet_3", {item["class_name"] for item in document["candidates"]})
+        self.assertIn("tuplet_bracket", {item["class_name"] for item in document["candidates"]})
+
+    def test_tuplet_three_associates_and_writes_musicxml(self):
+        from music21 import note, stream
+
+        groups = [FakeGroup((x, 95, x + 10, 105)) for x in (90, 120, 150)]
+        staff = FakeStaff((80, 90, 100, 110, 120))
+        document = {
+            "candidates": [candidate("tuplet_3", None, (118, 65, 128, 78), 0.9)]
+        }
+        result = associate_tuplet_candidates(document, groups, [staff])
+        self.assertEqual(result["xml_eligible_count"], 1)
+        notes = [apply_tuplets_to_music21(note.Note("C4"), group) for group in groups]
+        score = stream.Score([stream.Part([stream.Measure(notes)])])
+        xml_path = score.write("musicxml")
+        with open(xml_path, "r", encoding="utf-8") as handle:
+            text = handle.read()
+        self.assertIn("<actual-notes>3</actual-notes>", text)
+        self.assertIn("<normal-notes>2</normal-notes>", text)
 
     def test_associates_by_staff_side_and_horizontal_position(self):
         groups = [FakeGroup((95, 95, 105, 105)), FakeGroup((95, 295, 105, 305))]

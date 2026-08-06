@@ -1,9 +1,8 @@
 """Merge class-sharded DeepScoresV2-complete JSON files without duplicating pages.
 
-DeepScoresV2 dense provides one train JSON and one test JSON.  The complete
-archive instead provides one train/test JSON pair per class.  Each shard still
-contains every annotation on its selected pages, so naively converting all
-40 target shards would write the same page and annotation many times.
+DeepScoresV2 dense provides one train JSON and one test JSON.  The official
+complete archive instead partitions train and test pages across independently
+numbered JSON shards.  Each shard contains every annotation on its pages.
 
 This script reads the requested class shards one at a time, keeps only mapped
 classes, de-duplicates pages by filename, verifies their metadata, and writes
@@ -16,6 +15,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,8 +103,31 @@ def merge_split(
     *,
     max_shards: int | None,
     max_images_per_shard: int | None,
+    all_available_shards: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    selected_classes = classes if max_shards is None else classes[:max_shards]
+    class_by_id = {str(item["deepscores_id"]): item for item in classes}
+    if all_available_shards:
+        pattern = re.compile(
+            rf"^deepscores-complete-(\d+)_{re.escape(source_split)}\.json$"
+        )
+        shard_ids = sorted(
+            (
+                match.group(1)
+                for path in complete_root.glob(
+                    f"deepscores-complete-*_{source_split}.json"
+                )
+                if (match := pattern.match(path.name)) is not None
+            ),
+            key=int,
+        )
+        if not shard_ids:
+            raise FileNotFoundError(
+                f"No DeepScores complete {source_split} shards in {complete_root}"
+            )
+    else:
+        shard_ids = [str(item["deepscores_id"]) for item in classes]
+    if max_shards is not None:
+        shard_ids = shard_ids[:max_shards]
     images_by_filename: dict[str, dict[str, Any]] = {}
     annotations_by_id: dict[str, dict[str, Any]] = {}
     categories: dict[str, dict[str, Any]] | None = None
@@ -112,28 +135,43 @@ def merge_split(
     counters: Counter[str] = Counter()
     shard_records: list[dict[str, Any]] = []
 
-    for shard_index, class_item in enumerate(selected_classes, start=1):
-        deep_id = str(class_item["deepscores_id"])
+    for shard_index, deep_id in enumerate(shard_ids, start=1):
+        class_item = class_by_id.get(deep_id)
         shard_path = (
             complete_root
             / f"deepscores-complete-{deep_id}_{source_split}.json"
         )
         if not shard_path.is_file():
             raise FileNotFoundError(f"Missing complete-data shard: {shard_path}")
+        source_kind = "shard" if all_available_shards else "class"
         print(
-            f"[{source_split} {shard_index}/{len(selected_classes)}] "
-            f"loading class {deep_id}: {shard_path.name}",
+            f"[{source_split} {shard_index}/{len(shard_ids)}] "
+            f"loading {source_kind} {deep_id}: {shard_path.name}",
             flush=True,
         )
         document = load_json(shard_path)
         shard_categories = document["categories"]
         category = shard_categories.get(deep_id)
-        if category is None or category.get("name") != class_item["deepscores_name"]:
-            raise ValueError(
-                f"Class metadata mismatch in {shard_path}: "
-                f"{category} != {class_item['deepscores_name']}"
-            )
+        if not all_available_shards:
+            if category is None:
+                raise ValueError(
+                    f"Shard category {deep_id} is missing from {shard_path}"
+                )
+            if (
+                class_item is not None
+                and category.get("name") != class_item["deepscores_name"]
+            ):
+                raise ValueError(
+                    f"Class metadata mismatch in {shard_path}: "
+                    f"{category} != {class_item['deepscores_name']}"
+                )
         if categories is None:
+            missing_categories = target_ids - set(shard_categories)
+            if missing_categories:
+                raise ValueError(
+                    f"Target categories missing from {shard_path}: "
+                    f"{sorted(missing_categories, key=int)}"
+                )
             categories = {
                 target_id: shard_categories[target_id]
                 for target_id in sorted(target_ids, key=int)
@@ -197,18 +235,19 @@ def merge_split(
                 previous_image["ann_ids"] = sorted(merged_ids, key=int)
                 counters["duplicate_page_occurrences"] += 1
 
-        shard_records.append(
-            {
-                "class_id": int(deep_id),
-                "class_name": class_item["deepscores_name"],
-                "source": str(shard_path),
-                "source_page_count": len(shard_images),
-                "new_unique_pages": len(images_by_filename) - before_images,
-                "new_unique_target_annotations": (
-                    len(annotations_by_id) - before_annotations
-                ),
-            }
-        )
+        shard_record = {
+            "shard_id": int(deep_id),
+            "source": str(shard_path),
+            "source_page_count": len(shard_images),
+            "new_unique_pages": len(images_by_filename) - before_images,
+            "new_unique_target_annotations": (
+                len(annotations_by_id) - before_annotations
+            ),
+        }
+        if not all_available_shards:
+            shard_record["class_id"] = int(deep_id)
+            shard_record["class_name"] = str(category.get("name", ""))
+        shard_records.append(shard_record)
         del document, shard_annotations, shard_images
         gc.collect()
 
@@ -237,7 +276,10 @@ def merge_split(
     }
     statistics = {
         "source_split": source_split,
-        "target_shard_count": len(selected_classes),
+        "source_shard_count": len(shard_ids),
+        "shard_selection": (
+            "all_available" if all_available_shards else "mapped_classes"
+        ),
         "unique_page_count": len(images),
         "unique_target_annotation_count": len(annotations),
         "counters": dict(sorted(counters.items())),
@@ -289,6 +331,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--all-available-shards",
+        action="store_true",
+        help=(
+            "Read every shard present for each split. Use this for official "
+            "archives whose train/test shard IDs are asymmetric."
+        ),
+    )
+    parser.add_argument(
         "--max-shards",
         type=int,
         help="Diagnostic only: process the first N mapped class shards.",
@@ -333,6 +383,7 @@ def main() -> int:
         target_ids,
         max_shards=args.max_shards,
         max_images_per_shard=args.max_images_per_shard,
+        all_available_shards=args.all_available_shards,
     )
     test_document, test_statistics = merge_split(
         complete_root,
@@ -341,6 +392,7 @@ def main() -> int:
         target_ids,
         max_shards=args.max_shards,
         max_images_per_shard=args.max_images_per_shard,
+        all_available_shards=args.all_available_shards,
     )
     train_filenames = {
         str(image["filename"]) for image in train_document["images"]
