@@ -1,5 +1,9 @@
 # 鋼琴譜 OMR 改善版
 
+給 ChatGPT／Codex 接手專案時，請先讀根目錄的
+`AGENTS.md` 與 `CHATGPT_PROJECT_CONTEXT.md`。後者是需要隨專案進度持續更新的
+完整現況、決策與伺服器訓練交接文件。
+
 目前只以鋼琴譜為目標。DeepScores Complete 的全量合併與訓練沒有啟動；第一輪改用現有 Dense 資料，避免先花很久處理 Complete 才知道方向是否正確。
 
 ## 已完成
