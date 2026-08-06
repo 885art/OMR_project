@@ -1,6 +1,6 @@
 # ChatGPT / Codex project context: piano OMR
 
-Last updated: 2026-08-06 (Asia/Taipei)
+Last updated: 2026-08-07 (Asia/Taipei)
 
 This is the canonical handoff document for a new ChatGPT/Codex session. Read it
 before proposing server training or modifying the OMR pipeline. Update it in the
@@ -48,6 +48,11 @@ environment variables and Linux paths, never hard-code these values.
 
 - Dense source exists locally and was used for the current symbol and curve
   experiments.
+- The full 50-class Dense symbol dataset has now been converted and validated:
+  `C:\OMR_work\experiments\datasets\piano50_dense_parentheses`.
+  It contains 25,529 training images and 6,662 validation images after adding
+  4,440 parenthesized training tiles. The underlying validated base dataset has
+  27,751 tiles and 87,065 instances.
 - Complete source also exists locally, but blindly training all Complete data is
   **not** the agreed final strategy.
 - DeepScores is useful as generic pretraining data, not as a substitute for the
@@ -83,8 +88,13 @@ environment variables and Linux paths, never hard-code these values.
   inner musical symbol.
 - A static DeepScores dataset browser can show class counts and crop examples.
 - Windows RTX 3090 preparation/training scripts exist for Dense 50-class smoke
-  and full runs. A 50-class smoke dataset passed validation and single-GPU
-  YOLOv9 preflight locally.
+  and full runs. The full augmented 50-class dataset passed validation and
+  single-GPU YOLOv9 preflight locally on 2026-08-07. No full 50-class training
+  run has been started yet.
+- Local one-click launcher (outside Git):
+  `C:\OMR_work\START_PIANO50_TRAIN_20EP.bat`. It starts YOLOv9-E for 20 epochs,
+  batch size 4, image size 1024, and writes the run under
+  `C:\OMR_work\experiments\runs\yolov9_e_piano50_dense_parentheses_20ep_b4_3090`.
 
 ### Piano inference/postprocessing
 
@@ -243,6 +253,11 @@ for private server values.
 - `pip check` reported no broken requirements in the local `omr` environment.
 - The 50-class smoke dataset passed dataset validation.
 - The 50-class smoke dataset passed YOLOv9 RTX 3090 preflight.
+- The full 50-class Dense base dataset passed validation with 27,751 tiles and
+  87,065 instances.
+- The augmented full dataset passed its derived-dataset checks with 25,529
+  training images, 6,662 validation images, 4,440 parenthesized images, and 50
+  classes. YOLOv9 RTX 3090 preflight also passed against this dataset.
 - EasyOCR and `music21` are installed locally; tuplet MusicXML output was tested.
 
 Useful command:
@@ -286,6 +301,10 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-07: Prepared and validated the full local DeepScores Dense piano-50
+  dataset with parenthesis augmentation. Recorded exact counts, passed the
+  single-RTX-3090 preflight, and created a local one-click 20-epoch launcher.
+  Training was intentionally not started so the user can launch it manually.
 - 2026-08-06: Created the canonical AI handoff document and repository update
   policy. Recorded current implementation, known curve-domain failure modes,
   agreed BPSD-first strategy, server blockers, and validation status.
