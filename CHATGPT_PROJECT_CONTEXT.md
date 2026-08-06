@@ -92,9 +92,10 @@ environment variables and Linux paths, never hard-code these values.
   single-GPU YOLOv9 preflight locally on 2026-08-07. No full 50-class training
   run has been started yet.
 - Local one-click launcher (outside Git):
-  `C:\OMR_work\START_PIANO50_TRAIN_20EP.bat`. It starts YOLOv9-E for 20 epochs,
+  `C:\OMR_work\START_PIANO50_TRAIN_30EP.bat`. It starts YOLOv9-E for a maximum
+  of 30 epochs with early-stopping patience 8,
   batch size 4, image size 1024, and writes the run under
-  `C:\OMR_work\experiments\runs\yolov9_e_piano50_dense_parentheses_20ep_b4_3090`.
+  `C:\OMR_work\experiments\runs\yolov9_e_piano50_dense_parentheses_30ep_b4_3090`.
 
 ### Piano inference/postprocessing
 
@@ -301,6 +302,8 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-07: Changed the local one-click run from 20 to a maximum of 30 epochs
+  with early-stopping patience 8; the selected output remains `best.pt`.
 - 2026-08-07: Prepared and validated the full local DeepScores Dense piano-50
   dataset with parenthesis augmentation. Recorded exact counts, passed the
   single-RTX-3090 preflight, and created a local one-click 20-epoch launcher.
