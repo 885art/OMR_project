@@ -108,14 +108,13 @@ def load_class_mapping(path: Path) -> dict[str, Any]:
     mapping = load_json(path)
     classes = mapping.get("classes", [])
     yolo_names = mapping.get("yolo_names", [])
-    expected_yolo_ids = list(range(len(classes)))
+    expected_yolo_ids = list(range(len(yolo_names)))
     actual_yolo_ids = [int(item["yolo_id"]) for item in classes]
-    if actual_yolo_ids != expected_yolo_ids:
+    if sorted(set(actual_yolo_ids)) != expected_yolo_ids:
         raise ValueError(
-            f"YOLO IDs must be consecutive and ordered: {actual_yolo_ids}"
+            "YOLO IDs used by source classes must cover the consecutive range "
+            f"{expected_yolo_ids}: {actual_yolo_ids}"
         )
-    if [item["deepscores_name"] for item in classes] != yolo_names:
-        raise ValueError("yolo_names order does not match classes")
     declared = {str(key): int(value) for key, value in mapping["deepscores_to_yolo"].items()}
     derived = {str(item["deepscores_id"]): int(item["yolo_id"]) for item in classes}
     if declared != derived:
@@ -138,6 +137,61 @@ def load_class_mapping(path: Path) -> dict[str, Any]:
         }
     mapping["excluded_annotation_ids"] = normalized_exclusions
     return mapping
+
+
+def yolo_class_descriptors(mapping: dict[str, Any]) -> list[dict[str, Any]]:
+    """Aggregate one or more DeepScores source classes into each YOLO class."""
+    grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for item in mapping["classes"]:
+        grouped[int(item["yolo_id"])].append(item)
+    descriptors = []
+    for yolo_id, name in enumerate(mapping["yolo_names"]):
+        source_classes = grouped[yolo_id]
+        semantics = {item["normalized_semantic_class"] for item in source_classes}
+        sides = {item.get("side") for item in source_classes}
+        descriptors.append(
+            {
+                "yolo_id": yolo_id,
+                "name": name,
+                "source_classes": [
+                    {
+                        "deepscores_id": int(item["deepscores_id"]),
+                        "deepscores_name": item["deepscores_name"],
+                        "normalized_semantic_class": item["normalized_semantic_class"],
+                        "side": item.get("side"),
+                    }
+                    for item in source_classes
+                ],
+                "normalized_semantic_class": (
+                    next(iter(semantics)) if len(semantics) == 1 else name
+                ),
+                "side": next(iter(sides)) if len(sides) == 1 else None,
+            }
+        )
+    return descriptors
+
+
+def target_centered_window(
+    bbox: BBox,
+    source_width: int,
+    source_height: int,
+    tile_size: int,
+) -> TileWindow:
+    """Return an in-bounds crop centered on a target that fits in one tile."""
+    if bbox.width > tile_size or bbox.height > tile_size:
+        raise ValueError(
+            f"Target bbox {bbox.as_list()} exceeds full-bbox tile size {tile_size}"
+        )
+    center_x, center_y = bbox.center
+    x = max(
+        0,
+        min(int(round(center_x - tile_size / 2)), max(0, source_width - tile_size)),
+    )
+    y = max(
+        0,
+        min(int(round(center_y - tile_size / 2)), max(0, source_height - tile_size)),
+    )
+    return TileWindow(x=x, y=y, size=tile_size)
 
 
 def prepare_output(
@@ -383,6 +437,7 @@ def negative_manifest_record(
         "image_path": image_relative,
         "label_path": label_relative,
         "tile_offset": {"x": window.x, "y": window.y},
+        "tile_origin": "grid",
         "tile_size": window.size,
         "source_width": candidate.source_width,
         "source_height": candidate.source_height,
@@ -399,6 +454,7 @@ def negative_manifest_record(
         "annotation_ids": [],
         "clipped_annotation_ids": [],
         "unclipped_annotation_ids": [],
+        "ignored_partial_annotation_ids": [],
         "annotations": [],
     }
 
@@ -420,6 +476,8 @@ def convert_split(
     max_images: int | None,
     progress_every: int,
     resume: bool,
+    require_full_bbox: bool,
+    add_target_centered_windows: bool,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     annotation_path = dataset_root / SPLIT_FILES[split]
     print(f"LOADING {split}: {annotation_path}", flush=True)
@@ -512,25 +570,55 @@ def convert_split(
             if target.training_bbox_adjusted:
                 training_adjusted_by_class[target.yolo_id] += 1
 
-        positive_payloads: list[
-            tuple[TileWindow, str, list[str], list[dict[str, Any]]]
-        ] = []
-        for window in generate_tile_windows(
+        base_windows = generate_tile_windows(
             source_width,
             source_height,
             tile_size,
             stride,
             edge_policy,
-        ):
+        )
+        window_origins = {(window.x, window.y): "grid" for window in base_windows}
+        if require_full_bbox and add_target_centered_windows:
+            for target in targets:
+                if any(
+                    (assignment := assign_bbox(
+                        target.training_bbox, window, minimum_intersection_ratio
+                    )) is not None
+                    and not assignment.clipped
+                    for window in base_windows
+                ):
+                    continue
+                centered = target_centered_window(
+                    target.training_bbox, source_width, source_height, tile_size
+                )
+                window_origins.setdefault((centered.x, centered.y), "target_centered")
+        windows = [
+            TileWindow(x=x, y=y, size=tile_size)
+            for x, y in window_origins
+        ]
+
+        positive_payloads: list[
+            tuple[TileWindow, str, str, list[str], list[dict[str, Any]], list[str]]
+        ] = []
+        for window in windows:
             annotations_in_tile: list[dict[str, Any]] = []
             label_lines: list[str] = []
+            ignored_partial_ids: list[str] = []
             for target in targets:
+                target_overlap = intersection(target.training_bbox, window.bbox)
                 assignment = assign_bbox(
                     target.training_bbox,
                     window,
                     minimum_intersection_ratio,
                 )
                 if assignment is None:
+                    if require_full_bbox and target_overlap is not None:
+                        ignored_partial_ids.append(target.annotation_id)
+                        counters["ignored_partial_bbox_assignments"] += 1
+                    continue
+                if require_full_bbox and assignment.clipped:
+                    ignored_partial_ids.append(target.annotation_id)
+                    counters["ignored_partial_bbox_assignments"] += 1
                     continue
                 normalized = yolo_box(assignment.tile_bbox, tile_size)
                 label_lines.append(
@@ -580,9 +668,16 @@ def convert_split(
                 annotations_in_tile = [item[0] for item in ordered]
                 label_lines = [item[1] for item in ordered]
                 positive_payloads.append(
-                    (window, tile_stem, label_lines, annotations_in_tile)
+                    (
+                        window,
+                        tile_stem,
+                        window_origins[(window.x, window.y)],
+                        label_lines,
+                        annotations_in_tile,
+                        sorted(ignored_partial_ids),
+                    )
                 )
-            else:
+            elif not ignored_partial_ids:
                 negative_candidates.append(
                     NegativeCandidate(
                         image_order=image_order,
@@ -597,7 +692,7 @@ def convert_split(
         if positive_payloads:
             pending_positive: set[str] = set()
             for payload in positive_payloads:
-                _, tile_stem, _, _ = payload
+                _, tile_stem, _, _, _, _ = payload
                 image_path = image_output_dir / f"{tile_stem}.png"
                 label_path = label_output_dir / f"{tile_stem}.txt"
                 if not (
@@ -618,7 +713,14 @@ def convert_split(
                         f"Image size mismatch for {source_path}: {source_image.size} != "
                         f"{(source_width, source_height)}"
                     )
-            for window, tile_stem, label_lines, annotations_in_tile in positive_payloads:
+            for (
+                window,
+                tile_stem,
+                tile_origin,
+                label_lines,
+                annotations_in_tile,
+                ignored_partial_ids,
+            ) in positive_payloads:
                 image_path = image_output_dir / f"{tile_stem}.png"
                 label_path = label_output_dir / f"{tile_stem}.txt"
                 if tile_stem in pending_positive:
@@ -657,6 +759,7 @@ def convert_split(
                         "image_path": image_path.relative_to(output_dir).as_posix(),
                         "label_path": label_path.relative_to(output_dir).as_posix(),
                         "tile_offset": {"x": window.x, "y": window.y},
+                        "tile_origin": tile_origin,
                         "tile_size": tile_size,
                         "source_width": source_width,
                         "source_height": source_height,
@@ -675,6 +778,7 @@ def convert_split(
                         ],
                         "clipped_annotation_ids": clipped_ids,
                         "unclipped_annotation_ids": unclipped_ids,
+                        "ignored_partial_annotation_ids": ignored_partial_ids,
                         "annotations": annotations_in_tile,
                     }
                 )
@@ -793,7 +897,13 @@ def convert_split(
             "edge_policy": edge_policy,
             "minimum_intersection_ratio": minimum_intersection_ratio,
             "minimum_tenuto_bbox_height_pixels": minimum_tenuto_bbox_height_pixels,
-            "assignment_rule": "bbox center inside tile OR retained bbox area ratio >= threshold",
+            "assignment_rule": (
+                "complete bbox inside tile only"
+                if require_full_bbox
+                else "bbox center inside tile OR retained bbox area ratio >= threshold"
+            ),
+            "require_full_bbox": require_full_bbox,
+            "add_target_centered_windows": add_target_centered_windows,
             "negative_ratio": negative_ratio,
             "negative_sampling_seed": seed,
             "padding": "right/bottom white padding",
@@ -816,11 +926,11 @@ def convert_split(
     write_json(manifest_path, manifest)
 
     class_statistics: dict[str, Any] = {}
-    for item in mapping["classes"]:
+    for item in yolo_class_descriptors(mapping):
         yolo_id = int(item["yolo_id"])
         class_statistics[str(yolo_id)] = {
-            "name": item["deepscores_name"],
-            "deepscores_id": int(item["deepscores_id"]),
+            "name": item["name"],
+            "source_classes": item["source_classes"],
             "normalized_semantic_class": item["normalized_semantic_class"],
             "side": item["side"],
             "source_instance_count": source_class_instances[yolo_id],
@@ -916,7 +1026,7 @@ def combine_statistics(
     )
 
     combined_classes: dict[str, Any] = {}
-    for item in mapping["classes"]:
+    for item in yolo_class_descriptors(mapping):
         yolo_id = int(item["yolo_id"])
         key = str(yolo_id)
         source_widths = [
@@ -950,8 +1060,8 @@ def combine_statistics(
             for value in split_raw["tile_heights"][yolo_id]
         ]
         combined_classes[key] = {
-            "name": item["deepscores_name"],
-            "deepscores_id": int(item["deepscores_id"]),
+            "name": item["name"],
+            "source_classes": item["source_classes"],
             "normalized_semantic_class": item["normalized_semantic_class"],
             "side": item["side"],
             "source_instance_count": sum(
@@ -1050,6 +1160,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--minimum-intersection-ratio", type=float, default=0.6)
     parser.add_argument(
+        "--require-full-bbox",
+        action="store_true",
+        help="Never emit a label whose source bbox is clipped by a tile",
+    )
+    parser.add_argument(
+        "--add-target-centered-windows",
+        action="store_true",
+        help="Add a centered crop when no regular grid tile fully contains a target",
+    )
+    parser.add_argument(
         "--minimum-tenuto-bbox-height-pixels",
         type=float,
         default=8.0,
@@ -1096,6 +1216,8 @@ def main() -> int:
         raise ValueError("negative-ratio cannot be negative")
     if args.max_images_per_split is not None and args.max_images_per_split <= 0:
         raise ValueError("max-images-per-split must be positive")
+    if args.add_target_centered_windows and not args.require_full_bbox:
+        raise ValueError("--add-target-centered-windows requires --require-full-bbox")
 
     stride = args.tile_size - args.overlap
     mapping = load_class_mapping(class_mapping_path)
@@ -1121,6 +1243,8 @@ def main() -> int:
             max_images=args.max_images_per_split,
             progress_every=args.progress_every,
             resume=args.resume,
+            require_full_bbox=args.require_full_bbox,
+            add_target_centered_windows=args.add_target_centered_windows,
         )
         split_statistics[split] = split_stats
         raw_statistics[split] = split_raw
@@ -1143,6 +1267,8 @@ def main() -> int:
             "stride": stride,
             "edge_policy": args.edge_policy,
             "minimum_intersection_ratio": args.minimum_intersection_ratio,
+            "require_full_bbox": args.require_full_bbox,
+            "add_target_centered_windows": args.add_target_centered_windows,
             "minimum_tenuto_bbox_height_pixels": (
                 args.minimum_tenuto_bbox_height_pixels
             ),

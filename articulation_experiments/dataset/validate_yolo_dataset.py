@@ -187,6 +187,7 @@ def source_split_context(
     excluded_annotation_reasons: dict[str, str],
     expected_source_stats: dict[str, Any],
     issues: Issues,
+    class_count: int,
     max_images: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]], set[str]]:
     data = load_json(source_json)
@@ -283,7 +284,7 @@ def source_split_context(
         )
     for class_id, expected in enumerate(
         expected_source_stats["class_statistics"][str(index)]
-        for index in range(len(mapping_by_deep_id))
+        for index in range(class_count)
     ):
         if class_instances[class_id] != expected["source_instance_count"]:
             issues.add(
@@ -526,6 +527,10 @@ def validate_split(
     tile_size = int(configuration["tile_size"])
     stride = int(configuration["stride"])
     edge_policy = str(configuration.get("edge_policy", "pad"))
+    require_full_bbox = bool(configuration.get("require_full_bbox", False))
+    add_target_centered_windows = bool(
+        configuration.get("add_target_centered_windows", False)
+    )
     minimum_intersection_ratio = float(configuration["minimum_intersection_ratio"])
     minimum_tenuto_bbox_height_pixels = float(
         configuration.get("minimum_tenuto_bbox_height_pixels", 0.0)
@@ -554,6 +559,7 @@ def validate_split(
         source_height = int(tile_record["source_height"])
         if x_offset < 0 or y_offset < 0 or x_offset >= source_width or y_offset >= source_height:
             issues.add("tile_offset_out_of_range", context)
+        tile_origin = str(tile_record.get("tile_origin", "grid"))
         valid_x_offset = x_offset % stride == 0
         valid_y_offset = y_offset % stride == 0
         if edge_policy == "shift":
@@ -563,6 +569,11 @@ def validate_split(
             valid_y_offset = valid_y_offset or y_offset == max(
                 0, source_height - tile_size
             )
+        if tile_origin == "target_centered" and add_target_centered_windows:
+            valid_x_offset = True
+            valid_y_offset = True
+        elif tile_origin != "grid":
+            issues.add("unknown_tile_origin", context)
         if not valid_x_offset or not valid_y_offset:
             issues.add("tile_offset_not_on_stride", context)
         if int(tile_record.get("tile_size", -1)) != tile_size:
@@ -636,6 +647,8 @@ def validate_split(
             if bool(annotation_record.get("training_bbox_adjusted")):
                 adjusted_annotation_ids.add(annotation_id)
             clipped_count += int(bool(annotation_record.get("clipped_by_tile")))
+            if require_full_bbox and bool(annotation_record.get("clipped_by_tile")):
+                issues.add("full_bbox_policy_violation", f"{context}: {annotation_id}")
             validate_manifest_annotation(
                 annotation_record,
                 parsed_label,
@@ -760,6 +773,7 @@ def main() -> int:
     }
     exclusions_by_source = mapping.get("excluded_annotation_ids", {})
     expected_names = mapping["yolo_names"]
+    class_count = len(expected_names)
     issues = Issues(maximum_examples_per_code=args.max_examples_per_error)
     validate_dataset_yaml(dataset_root, expected_names, issues)
 
@@ -780,6 +794,7 @@ def main() -> int:
             },
             statistics["splits"][split],
             issues,
+            class_count,
             statistics["configuration"].get("max_images_per_split"),
         )
         raw_source_filenames[split] = source_filenames
@@ -796,7 +811,7 @@ def main() -> int:
                     source_json.name, {}
                 ).items()
             },
-            len(classes),
+            class_count,
             statistics["splits"][split],
             statistics["configuration"],
             issues,
@@ -850,7 +865,7 @@ def main() -> int:
         "checks_performed": [
             "image_label_one_to_one",
             "label_field_count_equals_5",
-            f"class_id_in_0_to_{len(classes) - 1}",
+            f"class_id_in_0_to_{class_count - 1}",
             "normalized_bbox_values_in_0_to_1",
             "positive_bbox_width_and_height",
             "bbox_inside_tile",

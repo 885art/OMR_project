@@ -1,6 +1,6 @@
 # ChatGPT / Codex project context: piano OMR
 
-Last updated: 2026-08-08 (Asia/Taipei)
+Last updated: 2026-08-09 (Asia/Taipei)
 
 This is the canonical handoff document for a new ChatGPT/Codex session. Read it
 before proposing server training or modifying the OMR pipeline. Update it in the
@@ -75,6 +75,10 @@ environment variables and Linux paths, never hard-code these values.
   `C:\OMR_work\experiments\runs\yolov9_e_dense_20ep_b4_3090\weights\best.pt`
 - Current two-class YOLOv9 slur/tie model:
   `slur_tie_experiments\outputs\runs\yolov9_curves_v1\weights\best.pt`
+- Curve v2 training is prepared but not started. It uses one visual `curve`
+  class and full-curve crops. The local dataset is
+  `C:\OMR_work\experiments\datasets\curve_v2_fullbbox_2048`; the one-click
+  launcher is `START_CURVE_V2_TRAIN_30EP.bat`.
 - These are preliminary models, not the final BPSD-trained piano models.
 
 ## 5. What is implemented
@@ -175,6 +179,21 @@ crossing staff lines, stems, beams, or dense chords are frequently fragmented or
 missed. The original OpenCV staff-removal/curve-fit method recovers some curves
 but also creates many beam/staff false positives. Do not union all OpenCV and
 YOLO results.
+
+The replacement curve-v2 dataset was prepared and validated on 2026-08-09:
+
+- DeepScores slur 121 and tie 123 both map to YOLO class 0, `curve`;
+- 1,714 source pages, 4,474 output tiles, and 26,379 source curves;
+- 52,269 duplicated tile instances for overlapping-context coverage;
+- 0 clipped training labels and 0 unassigned source annotations;
+- 2048 full-curve crops with 1024 overlap plus target-centered crops where the
+  regular grid cannot contain the complete curve.
+
+The local training launcher uses YOLOv9-E at model input 1280, batch 3, maximum
+30 epochs, and early-stopping patience 10. A batch-4/1280 one-epoch GPU smoke
+completed successfully, including validation and checkpoint writing, but used
+nearly all 24 GB VRAM; batch 3 is the safer default. The formal v2 run has not
+been started and remains a DeepScores pretraining baseline, not BPSD accuracy.
 
 ## 7. Agreed final modeling strategy
 
@@ -280,6 +299,10 @@ for private server values.
   `weights/best.pt` and `weights/last.pt`. The best source-domain mAP@0.5:0.95
   was 0.97734 at epoch 26.
 - EasyOCR and `music21` are installed locally; tuplet MusicXML output was tested.
+- The full one-class curve-v2 dataset passed source/manifest/label validation:
+  4,474 tiles, 52,269 tile instances, 0 clipped labels, and 0 unassigned source
+  annotations. YOLOv9-E RTX 3090 preflight passed. A separate 1-epoch 1280,
+  batch-4 smoke completed training, validation, and checkpoint writing.
 
 Useful command:
 
@@ -308,6 +331,8 @@ Useful command:
 - `omr/tuplet.py`: tuplet association and MusicXML attachment.
 - `jsonTemplate.json`: current local runtime defaults.
 - `server/`: Linux/NCHC and Windows training helpers.
+- `CURVE_V2_TRAINING.md`: curve-v2 local data recipe, start command, output,
+  and recovery notes.
 
 ## 13. Handoff prompt for another ChatGPT
 
@@ -322,6 +347,14 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-09: Implemented and validated the one-class full-curve v2 DeepScores
+  pipeline. Added many-to-one source-class mapping, full-bbox-only labels,
+  target-centered recovery crops, partial-overlap negative suppression, a local
+  RTX 3090 preparation script, preflight, and one-click 30-epoch launcher. The
+  full dataset has 4,474 tiles and 52,269 instances with zero clipped or
+  unassigned annotations. A separate 1280/batch-4 GPU smoke completed; the
+  formal launcher defaults to batch 3 and training was intentionally not
+  started.
 - 2026-08-08: Ran the new piano50 model on ten distributed BPSD piano pages and
   ten distributed string-quartet PDF pages. Created a local 20-page gallery and
   recorded the domain-shift findings: staccato/dynamics are useful, while

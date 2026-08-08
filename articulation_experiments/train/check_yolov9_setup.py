@@ -38,6 +38,7 @@ def main() -> int:
     parser.add_argument("--symbol-data", type=Path, required=True)
     parser.add_argument("--curve-data", type=Path)
     parser.add_argument("--expected-symbol-classes", type=int, default=40)
+    parser.add_argument("--expected-curve-classes", type=int, default=2)
     parser.add_argument(
         "--model-config",
         type=Path,
@@ -59,7 +60,9 @@ def main() -> int:
         "40-class dataset": args.symbol_data,
     }
     if args.curve_data is not None:
-        required["2-class curve dataset"] = args.curve_data
+        required[
+            f"{args.expected_curve_classes}-class curve dataset"
+        ] = args.curve_data
     missing = [f"{label}: {path}" for label, path in required.items() if not path.is_file()]
     if missing:
         raise FileNotFoundError("Missing YOLOv9 inputs:\n" + "\n".join(missing))
@@ -73,8 +76,14 @@ def main() -> int:
             "Symbol dataset must contain exactly "
             f"{args.expected_symbol_classes} classes"
         )
-    if args.curve_data is not None and class_count(args.curve_data) != 2:
-        raise RuntimeError("Curve dataset must contain exactly 2 classes")
+    if (
+        args.curve_data is not None
+        and class_count(args.curve_data) != args.expected_curve_classes
+    ):
+        raise RuntimeError(
+            "Curve dataset must contain exactly "
+            f"{args.expected_curve_classes} classes"
+        )
     require_passed_validation(args.symbol_data)
     if args.curve_data is not None:
         require_passed_validation(args.curve_data)
@@ -84,7 +93,8 @@ def main() -> int:
         "YOLOV9 PREFLIGHT PASSED: "
         f"CUDA={torch.cuda.get_device_name(0)}, "
         f"symbol_classes={args.expected_symbol_classes}, "
-        f"curve_classes={2 if args.curve_data is not None else 'not_checked'}, "
+        "curve_classes="
+        f"{args.expected_curve_classes if args.curve_data is not None else 'not_checked'}, "
         "datasets=validated"
     )
     return 0
