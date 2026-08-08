@@ -127,8 +127,21 @@ environment variables and Linux paths, never hard-code these values.
   `C:\OMR_work\experiments\piano_validation\more_cross_staff_hybrid`
 - DeepScores class browser:
   `C:\OMR_work\experiments\dataset_browser\complete_relevant\index.html`
+- New 50-class model domain test on ten BPSD piano pages and ten string-quartet
+  pages:
+  `C:\OMR_work\experiments\piano50_eval_20260808_20pages\index.html`
 
 These outputs are local diagnostics and are not committed.
+
+The 20-page domain test used confidence 0.25 with parenthesis-robust inference
+and hairpin geometry validation. BPSD produced 1,314 detections (mean model
+confidence 0.878); the string pages produced 1,710 (mean 0.875). The source
+folders do not contain matching ground-truth annotations, so these confidence
+values are not accuracy. Visual review found useful staccato and dynamic-symbol
+detections, but frequent high-confidence fingering false positives, some
+fermata/page-number and text/pedal confusion, weak tuplet recall, and incomplete
+hairpin recall. Do not cite the DeepScores validation mAP as piano-domain
+accuracy.
 
 ## 6. Known limitations and evidence
 
@@ -309,6 +322,11 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-08: Ran the new piano50 model on ten distributed BPSD piano pages and
+  ten distributed string-quartet PDF pages. Created a local 20-page gallery and
+  recorded the domain-shift findings: staccato/dynamics are useful, while
+  fingering, text/pedal, fermata, tuplet, and hairpin behavior still needs
+  target-domain labels and postprocessing.
 - 2026-08-08: Completed the local YOLOv9-E piano50 Dense training run. Recorded
   the best source-domain metrics and confirmed `jsonTemplate.json` points to
   the resulting `best.pt`. BPSD evaluation is still required before claiming
