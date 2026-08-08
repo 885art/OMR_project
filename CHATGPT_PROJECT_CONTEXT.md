@@ -1,6 +1,6 @@
 # ChatGPT / Codex project context: piano OMR
 
-Last updated: 2026-08-07 (Asia/Taipei)
+Last updated: 2026-08-08 (Asia/Taipei)
 
 This is the canonical handoff document for a new ChatGPT/Codex session. Read it
 before proposing server training or modifying the OMR pipeline. Update it in the
@@ -89,13 +89,17 @@ environment variables and Linux paths, never hard-code these values.
 - A static DeepScores dataset browser can show class counts and crop examples.
 - Windows RTX 3090 preparation/training scripts exist for Dense 50-class smoke
   and full runs. The full augmented 50-class dataset passed validation and
-  single-GPU YOLOv9 preflight locally on 2026-08-07. No full 50-class training
-  run has been started yet.
+  single-GPU YOLOv9 preflight locally on 2026-08-07. The local 30-epoch run
+  completed successfully on 2026-08-08; the selected `best.pt` is active in
+  `jsonTemplate.json`.
 - Local one-click launcher (outside Git):
   `C:\OMR_work\START_PIANO50_TRAIN_30EP.bat`. It starts YOLOv9-E for a maximum
   of 30 epochs with early-stopping patience 8,
   batch size 4, image size 1024, and writes the run under
   `C:\OMR_work\experiments\runs\yolov9_e_piano50_dense_parentheses_30ep_b4_3090`.
+  On the DeepScores validation split, the best checkpoint was epoch 26 with
+  precision 0.9898, recall 0.9837, mAP@0.5 0.9903, and mAP@0.5:0.95 0.97734.
+  These are source-domain validation metrics, not BPSD piano test accuracy.
 
 ### Piano inference/postprocessing
 
@@ -259,6 +263,9 @@ for private server values.
 - The augmented full dataset passed its derived-dataset checks with 25,529
   training images, 6,662 validation images, 4,440 parenthesized images, and 50
   classes. YOLOv9 RTX 3090 preflight also passed against this dataset.
+- The local YOLOv9-E 30-epoch run completed with 30 result rows and produced
+  `weights/best.pt` and `weights/last.pt`. The best source-domain mAP@0.5:0.95
+  was 0.97734 at epoch 26.
 - EasyOCR and `music21` are installed locally; tuplet MusicXML output was tested.
 
 Useful command:
@@ -302,6 +309,10 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-08: Completed the local YOLOv9-E piano50 Dense training run. Recorded
+  the best source-domain metrics and confirmed `jsonTemplate.json` points to
+  the resulting `best.pt`. BPSD evaluation is still required before claiming
+  target-domain accuracy.
 - 2026-08-07: Changed the local one-click run from 20 to a maximum of 30 epochs
   with early-stopping patience 8; the selected output remains `best.pt`.
 - 2026-08-07: Prepared and validated the full local DeepScores Dense piano-50
