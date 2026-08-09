@@ -1,54 +1,19 @@
 {
-  "numPage": 20,
+  "numPage": 1,
   "numPerPage": 1,
   "rotate": false,
+  "score_mode": "piano",
   "tsChange": [
     {
       "page": 1,
-      "loc": [0,0],
-      "time_signature": [4,4],
+      "loc": [0, 0],
+      "time_signature": [4, 4],
       "mov": 1
-    },
-    {
-      "page": 7,
-      "loc": [0,0],
-      "time_signature": [2,4],
-      "mov": 2
-    },
-    {
-      "page": 9,
-      "loc": [3,0],
-      "time_signature": [3,4],
-      "mov": 3
-    },
-    {
-      "page": 11,
-      "loc": [2,0],
-      "time_signature": [12,8],
-      "mov": 3
-    },
-    {
-      "page": 15,
-      "loc": [0,0],
-      "time_signature": [4,4],
-      "mov": 3
-    },
-    {
-      "page": 15,
-      "loc": [2,0],
-      "time_signature": [12,8],
-      "mov": 3
-    },
-    {
-      "page": 19,
-      "loc": [1,0],
-      "time_signature": [4,4],
-      "mov": 3
     }
   ],
-  "numTrack": 4,
-  "track_shift": [0,0,0,0],
-  "clef_options": [[1],[1],[0],[-1,-2]],
+  "numTrack": 2,
+  "track_shift": [0, 0],
+  "clef_options": [[1], [-1]],
   "articulation": {
     "enabled": true,
     "backend": "yolov9",
@@ -62,17 +27,13 @@
     "overlap": 128,
     "model_input_size": 1024,
     "edge_policy": "shift",
-    "tuplet_xml_confidence": 0.55,
+    "batch": 4,
     "parenthesis_robust": true,
     "text_direction_ocr": true,
     "easyocr_model_dir": "C:/OMR_work/weights/easyocr",
     "validate_hairpins": true,
     "detect_geometry_hairpins": true,
-    "class_confidence": {
-      "accent": 0.55,
-      "staccato": 0.45,
-      "tenuto": 0.45
-    }
+    "tuplet_xml_confidence": 0.55
   },
   "slur_tie": {
     "enabled": true,
@@ -81,15 +42,16 @@
     "data_yaml": "C:/OMR_work/experiments/datasets/curve_v2_fullbbox_2048/dataset.yaml",
     "mapping": "C:/OMR_work/25-omr/slur_tie_experiments/dataset/class_mapping_curve_v2.json",
     "yolov9_root": "C:/OMR_work/yolov9",
-    "confidence": 0.10,
+    "device": "auto",
+    "confidence": 0.1,
     "tile_size": 2048,
     "overlap": 1024,
     "model_input_size": 1024,
     "edge_policy": "shift",
-    "max_tie_span_units": 6.5,
-    "xml_confidence": 0.45,
     "batch": 2,
     "postprocess_mode": "full_bbox",
+    "max_tie_span_units": 6.5,
+    "xml_confidence": 0.45,
     "visualize_pages": [1]
   }
 }

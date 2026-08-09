@@ -98,9 +98,16 @@ def recognize_pedal_word_candidates(
     *,
     model_dir: str | Path,
     gpu: bool = True,
-    maximum_pedal_confidence: float = 0.78,
+    maximum_pedal_confidence: float = 0.82,
+    word_like_aspect_ratio: float = 2.4,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Reclassify low-confidence Ped./release boxes as dictionary words."""
+    """Reclassify suspicious pedal boxes as dictionary words.
+
+    Wide pedal-release boxes are a common failure mode for ``cresc.`` and
+    ``decresc.``.  They must pass constrained OCR even when the detector score
+    itself is high.  Unresolved low-score or word-shaped proposals are kept in
+    the audit trail, but are suppressed from MusicXML candidates.
+    """
 
     reader = _reader(model_dir, gpu)
     directions: list[dict[str, Any]] = []
@@ -108,7 +115,12 @@ def recognize_pedal_word_candidates(
     for index, candidate in enumerate(candidates):
         if candidate.get("class_name") not in {"pedal_start", "pedal_stop"}:
             continue
-        if float(candidate.get("confidence", 0.0)) >= maximum_pedal_confidence:
+        x1, y1, x2, y2 = (float(value) for value in candidate["bbox_xyxy"])
+        aspect_ratio = max(0.0, x2 - x1) / max(1.0, y2 - y1)
+        word_like = aspect_ratio >= word_like_aspect_ratio
+        confidence = float(candidate.get("confidence", 0.0))
+        requires_ocr = confidence < maximum_pedal_confidence or word_like
+        if not requires_ocr:
             continue
         crop, expanded_bbox = _expanded_crop(image, candidate["bbox_xyxy"])
         gray = np.asarray(crop)
@@ -133,7 +145,9 @@ def recognize_pedal_word_candidates(
         audit = {
             "candidate_index": index,
             "source_class": candidate.get("class_name"),
-            "source_confidence": float(candidate.get("confidence", 0.0)),
+            "source_confidence": confidence,
+            "bbox_aspect_ratio": round(aspect_ratio, 6),
+            "word_like_geometry": word_like,
             "expanded_bbox_xyxy": expanded_bbox,
             "ocr_results": [
                 {"text": str(text), "confidence": float(confidence)}
@@ -141,7 +155,10 @@ def recognize_pedal_word_candidates(
             ],
         }
         if best is None:
-            audit["decision"] = "unresolved"
+            audit["decision"] = "suppressed_unresolved_pedal"
+            candidate["ocr_suppressed"] = True
+            candidate["association_status"] = "rejected"
+            candidate["association_reason"] = "pedal_requires_ocr_confirmation"
             audits.append(audit)
             continue
         score, raw_text, ocr_confidence, normalized = best
@@ -169,7 +186,19 @@ def recognize_pedal_word_candidates(
                 "class_id": -2,
                 "side": None,
                 "bbox_xyxy": expanded_bbox,
-                "confidence": round(max(score, float(candidate.get("confidence", 0.0))), 6),
+                # EasyOCR's raw confidence is often pessimistic on engraved
+                # italic text.  The constrained dictionary match and the
+                # detector proposal are independent evidence, so combine all
+                # three instead of treating the OCR score as a probability.
+                "confidence": round(
+                    max(
+                        float(candidate.get("confidence", 0.0)),
+                        0.35
+                        + 0.40 * float(normalized["dictionary_similarity"])
+                        + 0.25 * ocr_confidence,
+                    ),
+                    6,
+                ),
                 "direction_type": normalized["direction_type"],
                 "direction_text": normalized["direction_text"],
                 "ocr_text": raw_text,
@@ -222,6 +251,7 @@ def apply_text_direction_ocr(
         candidate
         for candidate in candidates
         if not candidate.get("ocr_reclassified")
+        and not candidate.get("ocr_suppressed")
     ] + directions
     document["candidate_count"] = len(document["candidates"])
     document["text_direction_ocr"] = {

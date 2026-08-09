@@ -154,6 +154,18 @@ class SlurTieTests(unittest.TestCase):
         self.assertEqual(relation["classification_reason"], "same_pitch_but_nonadjacent_or_long_span")
         self.assertEqual(relation["intermediate_note_group_count"], 1)
 
+    def test_duplicate_curve_relation_is_not_written_twice(self):
+        groups = [FakeGroup(100, 5), FakeGroup(140, 6)]
+        first = candidate()
+        second = {**candidate(), "candidate_id": 1, "confidence": 0.8}
+        result = associate_curve_candidates(
+            [first, second], groups, [FakeStaff()], "duplicates"
+        )
+        self.assertEqual(result["relation_count"], 1)
+        self.assertEqual(
+            second["classification_reason"], "duplicate_note_endpoint_relation"
+        )
+
     def test_musicxml_contains_numbered_slur_start_and_stop(self):
         start_group = FakeGroup(100, 5)
         stop_group = FakeGroup(140, 6)

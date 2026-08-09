@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
-from omr.curve_postprocess import merge_curve_fragments
+from omr.curve_postprocess import collapse_curve_duplicates, merge_curve_fragments
 from omr.hairpin import validate_yolo_hairpins
 from omr.parentheses import suppress_parentheses
-from omr.text_directions import normalize_direction_word
+from omr.text_directions import normalize_direction_word, recognize_pedal_word_candidates
 from omr.tuplet import associate_tuplet_candidates
 
 
@@ -73,7 +74,7 @@ class PianoPostprocessTest(unittest.TestCase):
         combined = next(item for item in merged if item.get("fragment_count") == 2)
         self.assertEqual(combined["bbox_xyxy"], [10.0, 20.0, 140.0, 42.0])
 
-    def test_curve_validation_rejects_multiple_staff_lines(self):
+    def test_curve_validation_keeps_staff_crossing_curve_for_endpoint_review(self):
         from omr.curve_postprocess import validate_curve_candidates
 
         image = Image.new("L", (240, 80), 255)
@@ -84,13 +85,71 @@ class PianoPostprocessTest(unittest.TestCase):
             image,
             [{"bbox_xyxy": [5, 20, 235, 50], "confidence": 0.9, "raw_class_name": "slur"}],
         )
-        self.assertEqual(accepted, [])
-        self.assertEqual(rejected[0]["decision_reason"], "multiple_straight_staff_lines_in_curve_bbox")
+        self.assertEqual(rejected, [])
+        self.assertEqual(len(accepted), 1)
+        self.assertEqual(
+            accepted[0]["decision_reason"],
+            "staff_crossing_curve_requires_note_endpoints",
+        )
+
+    def test_full_curve_duplicate_collapse_does_not_union_boxes(self):
+        kept, suppressed = collapse_curve_duplicates(
+            [
+                {"bbox_xyxy": [10, 20, 210, 50], "confidence": 0.9},
+                {"bbox_xyxy": [15, 22, 205, 49], "confidence": 0.8},
+                {"bbox_xyxy": [30, 55, 190, 75], "confidence": 0.7},
+            ]
+        )
+        self.assertEqual(len(kept), 2)
+        self.assertEqual(len(suppressed), 1)
+        self.assertEqual(kept[0]["bbox_xyxy"], [10, 20, 210, 50])
 
     def test_direction_dictionary_tolerates_ocr_noise(self):
         self.assertEqual(normalize_direction_word("(cresc.)")["direction_type"], "crescendo")
         self.assertEqual(normalize_direction_word("decresc.p.")["direction_type"], "diminuendo")
         self.assertIsNone(normalize_direction_word("allegro"))
+
+    def test_wide_pedal_box_is_reclassified_as_crescendo(self):
+        class FakeReader:
+            def recognize(self, *_args, **_kwargs):
+                return [([0, 0, 1, 1], "cresc.", 0.95)]
+
+        image = Image.new("RGB", (240, 100), "white")
+        candidates = [
+            {
+                "class_name": "pedal_stop",
+                "bbox_xyxy": [20, 30, 150, 50],
+                "confidence": 0.88,
+            }
+        ]
+        with patch("omr.text_directions._reader", return_value=FakeReader()):
+            directions, audits = recognize_pedal_word_candidates(
+                image, candidates, model_dir="unused", gpu=False
+            )
+        self.assertEqual(directions[0]["direction_type"], "crescendo")
+        self.assertTrue(candidates[0]["ocr_reclassified"])
+        self.assertEqual(audits[0]["decision"], "recognized")
+
+    def test_unresolved_word_shaped_pedal_is_suppressed(self):
+        class FakeReader:
+            def recognize(self, *_args, **_kwargs):
+                return []
+
+        image = Image.new("RGB", (240, 100), "white")
+        candidates = [
+            {
+                "class_name": "pedal_stop",
+                "bbox_xyxy": [20, 30, 150, 50],
+                "confidence": 0.91,
+            }
+        ]
+        with patch("omr.text_directions._reader", return_value=FakeReader()):
+            directions, audits = recognize_pedal_word_candidates(
+                image, candidates, model_dir="unused", gpu=False
+            )
+        self.assertEqual(directions, [])
+        self.assertTrue(candidates[0]["ocr_suppressed"])
+        self.assertEqual(audits[0]["decision"], "suppressed_unresolved_pedal")
 
     def test_tuplet_three_gets_conservative_span(self):
         groups = [FakeGroup(x) for x in (90, 120, 150)]

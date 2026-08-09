@@ -1,6 +1,6 @@
 # ChatGPT / Codex project context: piano OMR
 
-Last updated: 2026-08-09 (Asia/Taipei)
+Last updated: 2026-08-10 (Asia/Taipei)
 
 This is the canonical handoff document for a new ChatGPT/Codex session. Read it
 before proposing server training or modifying the OMR pipeline. Update it in the
@@ -315,6 +315,18 @@ for private server values.
   4,474 tiles, 52,269 tile instances, 0 clipped labels, and 0 unassigned source
   annotations. YOLOv9-E RTX 3090 preflight passed. A separate 1-epoch 1280,
   batch-4 smoke completed training, validation, and checkpoint writing.
+- On 2026-08-10, 24 articulation/piano tests and 12 slur/tie tests passed after
+  the OMR25 integration changes.
+- A real BPSD page completed the full legacy `pdf2musicXML.py` pipeline in
+  two-staff piano mode. It produced a braced two-part MusicXML with 450 notes,
+  40 directions, 45 staccato marks, 15 fingerings, four tuplet tags, and seven
+  accepted slurs. The run also exposed a 7/8 reconstructed bar in a configured
+  4/4 passage, so it is an executable integration smoke, not a piano-accuracy
+  result.
+- The local environment additionally required `onnxruntime-gpu==1.18.0`,
+  `scikit-learn==1.7.0`, and `pdf2image==1.17.0` for the legacy main program.
+  ONNX Runtime could not load its CUDA provider DLL and fell back to CPU; both
+  YOLOv9-E detectors did run on the RTX 3090.
 
 Useful command:
 
@@ -347,6 +359,14 @@ Useful command:
 - `server/`: Linux/NCHC and Windows training helpers.
 - `CURVE_V2_TRAINING.md`: curve-v2 local data recipe, start command, output,
   and recovery notes.
+- `OMR25_PIANO_INTEGRATION.md`: runtime rules, model paths, smoke command, and
+  the current piano boundary.
+- `TEACHER_REPORT_PIANO_OMR.md`: evidence-backed teacher presentation outline
+  and speaking points.
+- `pianoConfigTemplate.json`: two-staff piano configuration and local model
+  settings.
+- `server/smoke_integrated_piano_page.py`: one-page real-model integration
+  smoke without the complete legacy note/rhythm pipeline.
 
 ## 13. Handoff prompt for another ChatGPT
 
@@ -361,6 +381,15 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-10: Integrated the Piano50 and curve-v2 checkpoints into OMR25's
+  preferred runtime path. Added constrained pedal/text arbitration, direct
+  geometry hairpin fallback, full-box curve duplicate collapse, staff-crossing
+  curve retention, duplicate endpoint-relation suppression, conservative
+  MusicXML gates, and two-staff piano brace output. Completed focused tests, a
+  real-model BPSD smoke, and a full one-page OMR25 MusicXML run. The run proved
+  executable integration while exposing a remaining 4/4-versus-7/8 rhythm
+  error; BPSD ground-truth accuracy is still unavailable. Added technical and
+  teacher-report handoff documents.
 - 2026-08-09: Completed the 30-epoch curve-v2 run; selected epoch 29 `best.pt`
   and recorded its DeepScores metrics. Re-ran the fixed 20-page domain set and
   generated a three-way symbol/curve/combined gallery. Updated candidate export

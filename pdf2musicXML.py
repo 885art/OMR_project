@@ -39,6 +39,9 @@ from omr.articulation import (
     register_extended_symbols,
 )
 from omr.slur_tie import (
+    YOLOV9_CURVE_DATA,
+    YOLOV9_CURVE_MAPPING,
+    YOLOV9_CURVE_WEIGHTS,
     add_slurs_to_stream,
     apply_ties_to_music21,
     finalize_ties,
@@ -47,6 +50,7 @@ from omr.slur_tie import (
     register_tie_endpoints,
 )
 from omr.tuplet import apply_tuplets_to_music21
+from omr.piano_score import apply_piano_staff_group
 
 OUTPUT_BASE_FOLDER = 'string_dataset/output/beethoven'
 
@@ -55,6 +59,7 @@ TRACK_SHIFT = [0,0,0,0]
 CLEF_OPTIONS = [[1],[1],[0,1],[-1,-2,1]]
 RESIZE_RATIO_PACKED = 2
 TIME_SIGNATURE = [9,8]
+SCORE_MODE = 'ensemble'
 DEBUGIMG = None
 class Staff:
     def __init__(self, left:int, right:int, ys:Tuple[int,int,int,int,int], minMaxDiff:int=0):
@@ -3429,6 +3434,9 @@ if __name__ == '__main__':
             TRACK_SHIFT = config['track_shift']
             CLEF_OPTIONS = config['clef_options']
             TIME_SIGNATURE = config['tsChange'][0]['time_signature']
+            SCORE_MODE = str(config.get('score_mode', 'ensemble')).lower()
+            if SCORE_MODE == 'piano' and NUM_TRACK != 2:
+                raise ValueError("score_mode='piano' requires numTrack=2")
 
         run_img_folder = os.path.join(piece_base_folder, 'imgs')
         if not os.path.isdir(run_img_folder):
@@ -3739,18 +3747,18 @@ if __name__ == '__main__':
                     articulation_output,
                     weights=articulation_config.get('weights', str(DEFAULT_ARTICULATION_WEIGHTS)),
                     coordinate_scale=omr_coordinate_scale,
-                    confidence=float(articulation_config.get('confidence', 0.25)),
+                    confidence=float(articulation_config.get('confidence', 0.05)),
                     class_confidence=articulation_config.get('class_confidence'),
                     nms_iou=float(articulation_config.get('nms_iou', 0.5)),
-                    tile_size=int(articulation_config.get('tile_size', 1024)),
-                    overlap=int(articulation_config.get('overlap', 256)),
+                    tile_size=int(articulation_config.get('tile_size', 512)),
+                    overlap=int(articulation_config.get('overlap', 128)),
                     model_input_size=int(
                         articulation_config.get(
                             'model_input_size',
                             articulation_config.get('tile_size', 1024),
                         )
                     ),
-                    edge_policy=articulation_config.get('edge_policy', 'pad'),
+                    edge_policy=articulation_config.get('edge_policy', 'shift'),
                     batch=int(articulation_config.get('batch', 4)),
                     mapping_path=articulation_config.get('mapping'),
                     tuplet_xml_confidence=float(
@@ -3770,6 +3778,9 @@ if __name__ == '__main__':
                     ),
                     validate_hairpins=bool(
                         articulation_config.get('validate_hairpins', True)
+                    ),
+                    detect_geometry_hairpins=bool(
+                        articulation_config.get('detect_geometry_hairpins', True)
                     ),
                     device=device,
                 )
@@ -3797,55 +3808,30 @@ if __name__ == '__main__':
                     os.path.join(OUTPUT_BASE_FOLDER, 'slur_tie'),
                     coordinate_scale=omr_coordinate_scale,
                     max_tie_span_units=float(slur_tie_config.get('max_tie_span_units', 6.5)),
-                    xml_confidence=float(slur_tie_config.get('xml_confidence', 0.30)),
+                    xml_confidence=float(slur_tie_config.get('xml_confidence', 0.45)),
                     visualize=page_number in visualize_pages,
                     backend=slur_tie_config.get('backend', 'auto'),
-                    weights=slur_tie_config.get(
-                        'weights',
-                        str(
-                            Path(__file__).resolve().parent
-                            / 'slur_tie_experiments'
-                            / 'outputs'
-                            / 'runs'
-                            / 'yolov9_curves_v1'
-                            / 'weights'
-                            / 'best.pt'
-                        ),
-                    ),
-                    data_yaml=slur_tie_config.get(
-                        'data_yaml',
-                        str(
-                            Path(__file__).resolve().parent
-                            / 'slur_tie_experiments'
-                            / 'outputs'
-                            / 'yolo_dataset_curves'
-                            / 'dataset.yaml'
-                        ),
-                    ),
-                    mapping_path=slur_tie_config.get(
-                        'mapping',
-                        str(
-                            Path(__file__).resolve().parent
-                            / 'slur_tie_experiments'
-                            / 'dataset'
-                            / 'class_mapping_curves.json'
-                        ),
-                    ),
+                    weights=slur_tie_config.get('weights', str(YOLOV9_CURVE_WEIGHTS)),
+                    data_yaml=slur_tie_config.get('data_yaml', str(YOLOV9_CURVE_DATA)),
+                    mapping_path=slur_tie_config.get('mapping', str(YOLOV9_CURVE_MAPPING)),
                     yolov9_root=slur_tie_config.get('yolov9_root'),
                     device=curve_device,
-                    confidence=float(slur_tie_config.get('confidence', 0.25)),
+                    confidence=float(slur_tie_config.get('confidence', 0.10)),
                     nms_iou=float(slur_tie_config.get('nms_iou', 0.5)),
-                    tile_size=int(slur_tie_config.get('tile_size', 1024)),
-                    overlap=int(slur_tie_config.get('overlap', 256)),
+                    tile_size=int(slur_tie_config.get('tile_size', 2048)),
+                    overlap=int(slur_tie_config.get('overlap', 1024)),
                     model_input_size=int(
                         slur_tie_config.get(
                             'model_input_size',
                             slur_tie_config.get('tile_size', 1024),
                         )
                     ),
-                    edge_policy=slur_tie_config.get('edge_policy', 'pad'),
+                    edge_policy=slur_tie_config.get('edge_policy', 'shift'),
                     batch=int(slur_tie_config.get('batch', 2)),
                     confirmed_hairpins=confirmed_hairpins,
+                    postprocess_mode=slur_tie_config.get(
+                        'postprocess_mode', 'full_bbox'
+                    ),
                 )
                 print(
                     f"Slur/tie: {slur_tie_document['matched_count']} "
@@ -3871,6 +3857,9 @@ if __name__ == '__main__':
                 wholeBarList[tr] += barList[tr]
             # getAccidentalsChanges(barList)
             score, scoreShifted, debugImages = exportXML(barList, trackNo, image, beamMapImg=beamMapImg, barsBreakPoints = barBreakPoints)
+            if SCORE_MODE == 'piano':
+                apply_piano_staff_group(score)
+                apply_piano_staff_group(scoreShifted)
             if len(allBarBreakPoints) == 0:
                 allBarBreakPoints+=barBreakPoints
             else:
@@ -3891,6 +3880,9 @@ if __name__ == '__main__':
 
         print('finishing all')
         scoreWhole, scoreWholeShifted, _= exportXML(wholeBarList, NUM_TRACK,barsBreakPoints=allBarBreakPoints)
+        if SCORE_MODE == 'piano':
+            apply_piano_staff_group(scoreWhole)
+            apply_piano_staff_group(scoreWholeShifted)
         # scoreWhole, scoreWholeShifted, _= exportXML(wholeBarList, NUM_TRACK, beamMapList=allBeamMaps, beamMapRefList=beamRefList,lineNoList=lineNoList)
         scoreWhole.write('musicxml', fp=f'{OUTPUT_BASE_FOLDER}/all_{img_name}.xml')
         if len(np.unique(TRACK_SHIFT))>1:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -11,7 +12,7 @@ import numpy as np
 
 DEFAULT_XML_CONFIDENCE = 0.45
 DEFAULT_MAX_TIE_SPAN_UNITS = 6.5
-YOLOV9_CURVE_WEIGHTS = (
+LEGACY_YOLOV9_CURVE_WEIGHTS = (
     Path(__file__).resolve().parents[1]
     / "slur_tie_experiments"
     / "outputs"
@@ -20,18 +21,43 @@ YOLOV9_CURVE_WEIGHTS = (
     / "weights"
     / "best.pt"
 )
-YOLOV9_CURVE_DATA = (
+LEGACY_YOLOV9_CURVE_DATA = (
     Path(__file__).resolve().parents[1]
     / "slur_tie_experiments"
     / "outputs"
     / "yolo_dataset_curves"
     / "dataset.yaml"
 )
-YOLOV9_CURVE_MAPPING = (
+LEGACY_YOLOV9_CURVE_MAPPING = (
     Path(__file__).resolve().parents[1]
     / "slur_tie_experiments"
     / "dataset"
     / "class_mapping_curves.json"
+)
+CURVE_V2_WEIGHTS = Path(
+    os.environ.get(
+        "OMR_CURVE_V2_WEIGHTS",
+        r"C:\OMR_work\experiments\runs\yolov9_e_curve_v2_fullbbox_2048_30ep_3090\weights\best.pt",
+    )
+)
+CURVE_V2_DATA = Path(
+    os.environ.get(
+        "OMR_CURVE_V2_DATA",
+        r"C:\OMR_work\experiments\datasets\curve_v2_fullbbox_2048\dataset.yaml",
+    )
+)
+CURVE_V2_MAPPING = (
+    Path(__file__).resolve().parents[1]
+    / "slur_tie_experiments"
+    / "dataset"
+    / "class_mapping_curve_v2.json"
+)
+YOLOV9_CURVE_WEIGHTS = (
+    CURVE_V2_WEIGHTS if CURVE_V2_WEIGHTS.is_file() else LEGACY_YOLOV9_CURVE_WEIGHTS
+)
+YOLOV9_CURVE_DATA = CURVE_V2_DATA if CURVE_V2_DATA.is_file() else LEGACY_YOLOV9_CURVE_DATA
+YOLOV9_CURVE_MAPPING = (
+    CURVE_V2_MAPPING if CURVE_V2_WEIGHTS.is_file() else LEGACY_YOLOV9_CURVE_MAPPING
 )
 _CURVE_MODEL_CACHE: dict[str, Any] = {}
 
@@ -275,9 +301,10 @@ def detect_yolov9_curve_candidates(
     tile_size: int = 1024,
     overlap: int = 256,
     model_input_size: int | None = None,
-    edge_policy: str = "pad",
+    edge_policy: str = "shift",
     batch: int = 2,
     confirmed_hairpins: list[dict[str, Any]] | None = None,
+    postprocess_mode: str = "full_bbox",
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run the official YOLOv9 detector and prepare curve endpoint candidates."""
 
@@ -315,10 +342,24 @@ def detect_yolov9_curve_candidates(
         edge_policy,
     )
     merged = merge_predictions(raw, nms_iou)
-    from omr.curve_postprocess import merge_curve_fragments, validate_curve_candidates
+    nms_prediction_count = int(merged["prediction_count"])
+    from omr.curve_postprocess import (
+        collapse_curve_duplicates,
+        merge_curve_fragments,
+        validate_curve_candidates,
+    )
     from omr.hairpin import suppress_curve_hairpin_conflicts
 
-    curve_predictions = merge_curve_fragments(merged["predictions"])
+    mode = str(postprocess_mode).lower()
+    duplicate_curves: list[dict[str, Any]] = []
+    if mode == "full_bbox":
+        curve_predictions, duplicate_curves = collapse_curve_duplicates(
+            merged["predictions"]
+        )
+    elif mode == "fragments":
+        curve_predictions = merge_curve_fragments(merged["predictions"])
+    else:
+        raise ValueError(f"Unsupported curve postprocess mode: {postprocess_mode}")
     curve_predictions, rejected_geometry = validate_curve_candidates(
         page, curve_predictions
     )
@@ -336,7 +377,9 @@ def detect_yolov9_curve_candidates(
     return candidates, {
         "backend": "yolov9",
         "raw_prediction_count": raw["prediction_count"],
-        "merged_prediction_count": merged["prediction_count"],
+        "merged_prediction_count": nms_prediction_count,
+        "retained_prediction_count": merged["prediction_count"],
+        "duplicate_curve_count": len(duplicate_curves),
         "rejected_curve_geometry_count": len(rejected_geometry),
         "suppressed_hairpin_conflict_count": len(suppressed_hairpins),
         "inference_seconds": elapsed,
@@ -407,6 +450,7 @@ def associate_curve_candidates(
         return group, 1.0 / (1.0 + cost)
 
     relations = []
+    accepted_relation_keys: set[tuple[int, int, str, str]] = set()
     for candidate in candidates:
         candidate["association_status"] = "unmatched"
         staff_index = int(candidate["staff_index"])
@@ -442,6 +486,21 @@ def associate_curve_candidates(
             reason = "endpoint_pitch_sets_differ"
         association_score = min(float(left_score), float(right_score))
         classification_confidence = float(candidate["confidence"]) * association_score
+        relation_key = (
+            int(left["index"]),
+            int(right["index"]),
+            predicted_type,
+            str(candidate["curve_direction"]),
+        )
+        if relation_key in accepted_relation_keys:
+            candidate["association_status"] = "rejected"
+            candidate["classification_reason"] = "duplicate_note_endpoint_relation"
+            candidate["left_note_group_id"] = int(left["index"])
+            candidate["right_note_group_id"] = int(right["index"])
+            candidate["xml_eligible"] = False
+            candidate["xml_exclusion_reason"] = "duplicate_note_endpoint_relation"
+            continue
+        accepted_relation_keys.add(relation_key)
         relation_number = len(relations) + 1
         relation_id = f"{image_id}:curve:{relation_number}"
         structurally_eligible = predicted_type == "slur" or (
@@ -673,9 +732,10 @@ def process_page_slurs_ties(
     tile_size: int = 1024,
     overlap: int = 256,
     model_input_size: int | None = None,
-    edge_policy: str = "pad",
+    edge_policy: str = "shift",
     batch: int = 2,
     confirmed_hairpins: list[dict[str, Any]] | None = None,
+    postprocess_mode: str = "full_bbox",
 ) -> dict[str, Any]:
     source = Path(image_path).expanduser().resolve()
     image = cv2.imread(str(source), cv2.IMREAD_COLOR)
@@ -705,6 +765,7 @@ def process_page_slurs_ties(
             edge_policy=edge_policy,
             batch=batch,
             confirmed_hairpins=confirmed_hairpins,
+            postprocess_mode=postprocess_mode,
         )
     elif selected_backend == "opencv":
         candidates, _ = detect_curve_candidates(image, staffs, coordinate_scale)

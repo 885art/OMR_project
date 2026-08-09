@@ -132,8 +132,22 @@ YOLOV9_SYMBOL_DATA = (
     / "yolo_dataset_extended"
     / "dataset.yaml"
 )
+PIANO50_WEIGHTS = Path(
+    os.environ.get(
+        "OMR_PIANO50_WEIGHTS",
+        r"C:\OMR_work\experiments\runs\yolov9_e_piano50_dense_parentheses_30ep_b4_3090\weights\best.pt",
+    )
+)
+PIANO50_DATA = Path(
+    os.environ.get(
+        "OMR_PIANO50_DATA",
+        r"C:\OMR_work\experiments\datasets\piano50_dense_parentheses\dataset.yaml",
+    )
+)
 DEFAULT_WEIGHTS = (
-    YOLOV9_SYMBOL_WEIGHTS
+    PIANO50_WEIGHTS
+    if PIANO50_WEIGHTS.is_file()
+    else YOLOV9_SYMBOL_WEIGHTS
     if YOLOV9_SYMBOL_WEIGHTS.is_file()
     else EXTENDED_WEIGHTS
     if EXTENDED_WEIGHTS.is_file()
@@ -753,6 +767,7 @@ def process_page_articulations(
     text_direction_ocr: bool = False,
     easyocr_model_dir: str | Path | None = None,
     validate_hairpins: bool = True,
+    detect_geometry_hairpins: bool = True,
 ) -> dict[str, Any]:
     """Detect, associate, persist, and visualize articulations for one page."""
 
@@ -766,11 +781,14 @@ def process_page_articulations(
     if not weights_path.is_file():
         raise FileNotFoundError(f"Articulation weights not found: {weights_path}")
     config_dir = repo_root / "articulation_experiments" / "outputs" / "ultralytics_config"
+    resolved_data_yaml = data_yaml
+    if resolved_data_yaml is None and weights_path == PIANO50_WEIGHTS.resolve():
+        resolved_data_yaml = PIANO50_DATA
     model = _load_model(
         weights_path,
         config_dir,
         backend=backend,
-        data_yaml=data_yaml,
+        data_yaml=resolved_data_yaml,
         yolov9_root=yolov9_root,
         device=device,
     )
@@ -787,21 +805,61 @@ def process_page_articulations(
     merged = merge_predictions(raw, nms_iou)
     hairpin_validation = None
     if validate_hairpins:
-        from omr.hairpin import validate_yolo_hairpins
+        from omr.hairpin import detect_hairpins, validate_yolo_hairpins
 
         validated_hairpins, rejected_hairpins = validate_yolo_hairpins(
             page, merged["predictions"], minimum_model_confidence=confidence
         )
+        geometry_hairpins: list[dict[str, Any]] = []
+        rejected_geometry_hairpins: list[dict[str, Any]] = []
+        if detect_geometry_hairpins:
+            geometry_predictions = []
+            for proposal in detect_hairpins(page):
+                geometry_predictions.append(
+                    {
+                        **proposal,
+                        "class_id": 38
+                        if proposal["class_name"] == "crescendo"
+                        else 39,
+                    }
+                )
+            geometry_hairpins, rejected_geometry_hairpins = validate_yolo_hairpins(
+                page, geometry_predictions, minimum_model_confidence=0.0
+            )
+        all_hairpins = sorted(
+            validated_hairpins + geometry_hairpins,
+            key=lambda item: float(item.get("confidence", 0.0)),
+            reverse=True,
+        )
+        deduplicated_hairpins: list[dict[str, Any]] = []
+        for item in all_hairpins:
+            x1, y1, x2, y2 = (float(value) for value in item["bbox_xyxy"])
+            duplicate = False
+            for existing in deduplicated_hairpins:
+                ex1, ey1, ex2, ey2 = (
+                    float(value) for value in existing["bbox_xyxy"]
+                )
+                intersection = max(0.0, min(x2, ex2) - max(x1, ex1)) * max(
+                    0.0, min(y2, ey2) - max(y1, ey1)
+                )
+                smaller = min((x2 - x1) * (y2 - y1), (ex2 - ex1) * (ey2 - ey1))
+                if smaller > 0 and intersection / smaller >= 0.55:
+                    duplicate = True
+                    break
+            if not duplicate:
+                deduplicated_hairpins.append(item)
         merged["predictions"] = [
             prediction
             for prediction in merged["predictions"]
             if "Hairpin" not in str(prediction.get("raw_class_name", ""))
-        ] + validated_hairpins
+        ] + deduplicated_hairpins
         merged["prediction_count"] = len(merged["predictions"])
         hairpin_validation = {
-            "accepted_count": len(validated_hairpins),
-            "rejected_count": len(rejected_hairpins),
-            "rejected": rejected_hairpins,
+            "accepted_count": len(deduplicated_hairpins),
+            "model_accepted_count": len(validated_hairpins),
+            "geometry_accepted_count": len(geometry_hairpins),
+            "rejected_count": len(rejected_hairpins) + len(rejected_geometry_hairpins),
+            "rejected": rejected_hairpins + rejected_geometry_hairpins,
         }
     if mapping_path is None:
         class_count = len(getattr(model, "names", {}))
