@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from omr.articulation import (
     add_extended_symbols_to_stream,
@@ -45,6 +46,30 @@ def candidate(class_name, side, bbox, confidence=0.9):
 
 
 class RuntimeIntegrationTest(unittest.TestCase):
+    def test_many_to_one_mapping_exports_visual_class(self):
+        merged = {
+            "image_id": "page",
+            "source_path": "page.png",
+            "source_width": 100,
+            "source_height": 100,
+            "predictions": [
+                {
+                    "class_id": 0,
+                    "bbox_xyxy": [10, 20, 80, 40],
+                    "confidence": 0.9,
+                }
+            ],
+        }
+        mapping = (
+            Path(__file__).resolve().parents[2]
+            / "slur_tie_experiments"
+            / "dataset"
+            / "class_mapping_curve_v2.json"
+        )
+        exported = export_candidates(merged, mapping)
+        self.assertEqual(exported["candidates"][0]["raw_class_name"], "curve")
+        self.assertEqual(exported["candidates"][0]["class_name"], "curve")
+
     def test_extended_mapping_exports_40_detector_classes(self):
         from pathlib import Path
 

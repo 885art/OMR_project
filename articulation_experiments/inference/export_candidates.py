@@ -12,7 +12,20 @@ def export_candidates(
     merged: dict[str, Any], mapping_path: Path
 ) -> dict[str, Any]:
     mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
-    by_yolo = {int(item["yolo_id"]): item for item in mapping["classes"]}
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for item in mapping["classes"]:
+        grouped.setdefault(int(item["yolo_id"]), []).append(item)
+    by_yolo = {}
+    for class_id, items in grouped.items():
+        if len(items) == 1:
+            by_yolo[class_id] = items[0]
+        else:
+            name = str(mapping["yolo_names"][class_id])
+            by_yolo[class_id] = {
+                "deepscores_name": name,
+                "normalized_semantic_class": name,
+                "side": None,
+            }
     candidates = []
     for prediction in merged.get("predictions", []):
         class_id = int(prediction["class_id"])

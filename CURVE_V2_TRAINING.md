@@ -1,21 +1,22 @@
 # Slur/Tie curve v2（本機 RTX 3090）
 
-## 直接開始
+## 目前狀態（2026-08-09）
 
-資料已準備並驗證完成。關閉其他會大量使用 GPU 的程式後，雙擊：
-
-```text
-C:\OMR_work\25-omr\START_CURVE_V2_TRAIN_30EP.bat
-```
-
-預設是 YOLOv9-E、1280 模型輸入、batch 3、最多 30 epochs、early-stopping
-patience 10。正式輸出位於：
+正式 30-epoch 訓練已完成，不需要再次雙擊啟動檔。請使用：
 
 ```text
-C:\OMR_work\experiments\runs\yolov9_e_curve_v2_fullbbox_2048_30ep_3090
+C:\OMR_work\experiments\runs\yolov9_e_curve_v2_fullbbox_2048_30ep_3090\weights\best.pt
 ```
 
-訓練完成後應使用 `weights\best.pt`，不是固定採用最後一個 epoch。
+最佳結果是最後一輪 epoch 29：precision 0.96812、recall 0.94299、mAP50
+0.97980、mAP50-95 0.85626。這些是 DeepScores 驗證指標，不是 BPSD
+鋼琴譜準確率。
+
+同一批 20 頁的 curve-only 與 Piano50 合併結果位於：
+
+```text
+C:\OMR_work\experiments\piano50_curvev2_eval_20260809_20pages\index.html
+```
 
 ## 這次和舊模型的差異
 
@@ -34,23 +35,14 @@ C:\OMR_work\experiments\datasets\curve_v2_fullbbox_2048
 驗證結果：1,714 張來源頁、4,474 個 tiles、26,379 條來源曲線、52,269 個
 tile instances、0 clipped labels、0 unassigned annotations。
 
-## 需要重建資料時
+## 需要重新訓練時
+
+既有正式 run 已存在，直接雙擊會安全地停止。要重跑必須換 run name：
 
 ```powershell
-& 'C:\OMR_work\25-omr\server\prepare_curve_v2_3090.ps1' -Mode Full -Overwrite
-```
-
-只做啟動前檢查、不開始訓練：
-
-```powershell
-cmd /d /c "C:\OMR_work\25-omr\server\train_yolov9_curve_v2_3090.bat preflight"
-```
-
-如果仍有顯存不足，可在 PowerShell 以 batch 2 啟動：
-
-```powershell
-$env:OMR_BATCH_SIZE='2'
+$env:OMR_RUN_NAME='yolov9_e_curve_v2_retry'
 & 'C:\OMR_work\25-omr\START_CURVE_V2_TRAIN_30EP.bat'
 ```
 
-不要用 smoke run 的權重判斷準確率；1-epoch smoke 僅驗證整個 GPU 訓練流程能執行。
+若顯存不足，可先設定 `$env:OMR_BATCH_SIZE='2'`。不要用 smoke run 的權重
+判斷準確率；1-epoch smoke 僅驗證 GPU 訓練流程能執行。

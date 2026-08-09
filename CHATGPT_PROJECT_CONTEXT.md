@@ -75,10 +75,11 @@ environment variables and Linux paths, never hard-code these values.
   `C:\OMR_work\experiments\runs\yolov9_e_dense_20ep_b4_3090\weights\best.pt`
 - Current two-class YOLOv9 slur/tie model:
   `slur_tie_experiments\outputs\runs\yolov9_curves_v1\weights\best.pt`
-- Curve v2 training is prepared but not started. It uses one visual `curve`
-  class and full-curve crops. The local dataset is
-  `C:\OMR_work\experiments\datasets\curve_v2_fullbbox_2048`; the one-click
-  launcher is `START_CURVE_V2_TRAIN_30EP.bat`.
+- Curve v2 training completed on 2026-08-09. It uses one visual `curve` class
+  and full-curve crops. The selected checkpoint is
+  `C:\OMR_work\experiments\runs\yolov9_e_curve_v2_fullbbox_2048_30ep_3090\weights\best.pt`.
+  The local dataset is
+  `C:\OMR_work\experiments\datasets\curve_v2_fullbbox_2048`.
 - These are preliminary models, not the final BPSD-trained piano models.
 
 ## 5. What is implemented
@@ -190,10 +191,21 @@ The replacement curve-v2 dataset was prepared and validated on 2026-08-09:
   regular grid cannot contain the complete curve.
 
 The local training launcher uses YOLOv9-E at model input 1280, batch 3, maximum
-30 epochs, and early-stopping patience 10. A batch-4/1280 one-epoch GPU smoke
-completed successfully, including validation and checkpoint writing, but used
-nearly all 24 GB VRAM; batch 3 is the safer default. The formal v2 run has not
-been started and remains a DeepScores pretraining baseline, not BPSD accuracy.
+30 epochs, and early-stopping patience 10. The formal run completed all 30
+epochs. The best checkpoint is epoch 29 with precision 0.96812, recall 0.94299,
+mAP@0.5 0.97980, and mAP@0.5:0.95 0.85626. These remain DeepScores pretraining
+metrics, not BPSD accuracy.
+
+The curve-v2 checkpoint was run on the same fixed ten BPSD and ten string pages
+as the piano50 domain review. At confidence 0.25 it produced 490 BPSD and 985
+string curve boxes. Visual review shows substantially better long/cross-staff
+curve and small-tie coverage than the old two-class model. Remaining problems
+include duplicate/overlapping boxes on some very long curves, hairpin confusion,
+and the old multi-staff-line geometry rule flagging some legitimate long curves.
+The comparison gallery preserves both accepted and flagged proposals at
+`C:\OMR_work\experiments\piano50_curvev2_eval_20260809_20pages\index.html`.
+These pages have no matching ground truth, so counts and model confidence are
+not accuracy.
 
 ## 7. Agreed final modeling strategy
 
@@ -324,6 +336,8 @@ Useful command:
   output.
 - `articulation_experiments/inference/review_curve_hybrid.py`: YOLO/OpenCV curve
   comparison.
+- `articulation_experiments/inference/build_curve_v2_comparison_gallery.py`:
+  fixed-page previous-symbol, curve-only, and combined visual comparison.
 - `omr/articulation.py`: symbol inference, thresholds, association.
 - `omr/slur_tie.py`: curve detection, endpoint association, MusicXML rules.
 - `omr/text_directions.py`: constrained OCR.
@@ -347,6 +361,12 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-09: Completed the 30-epoch curve-v2 run; selected epoch 29 `best.pt`
+  and recorded its DeepScores metrics. Re-ran the fixed 20-page domain set and
+  generated a three-way symbol/curve/combined gallery. Updated candidate export
+  to represent the many-to-one detector output as `curve` instead of arbitrarily
+  reporting one source label. Visual review found much better curve coverage,
+  with long-curve duplicates and geometry/hairpin filtering still unresolved.
 - 2026-08-09: Implemented and validated the one-class full-curve v2 DeepScores
   pipeline. Added many-to-one source-class mapping, full-bbox-only labels,
   target-centered recovery crops, partial-overlap negative suppression, a local
