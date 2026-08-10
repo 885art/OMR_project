@@ -140,7 +140,7 @@ Tuplet 數字會嘗試尋找同一個 staff 上對應的音符範圍。
 
 目前結果：
 
-- articulation／piano：37 個測試通過。
+- articulation／piano：38 個測試通過。
 - slur／tie：14 個測試通過。
 
 ### 單張鋼琴譜模型整合測試

@@ -445,7 +445,7 @@ The user can paste this:
   `sempre` disappeared, the true adjacent `pp` became one token, the missing
   decrescendo beside a crescendo was recovered, and the reported duplicate
   hairpin became one union box. Raw detections remain available in JSON for
-  audit. Focused test totals are now 37 articulation/piano plus 14 curve tests.
+  audit. Focused test totals are now 38 articulation/piano plus 14 curve tests.
 - 2026-08-10: Completed a full three-page piano conversion of the imported
   `Beethoven_Op027No2-01` score after visually verifying the initial cut-time
   signature as 2/2. The first uncached run took about 455 seconds and produced

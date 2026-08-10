@@ -140,6 +140,26 @@ class PianoPostprocessTest(unittest.TestCase):
             "dynamic_token_embedded_in_word",
         )
 
+    def test_tiny_ink_fragment_does_not_suppress_standalone_dynamic(self):
+        image = Image.new("RGB", (100, 70), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((30, 25, 55, 45), fill="black")
+        draw.rectangle((18, 30, 23, 40), fill="black")
+        draw.rectangle((67, 32, 68, 36), fill="black")
+        document = {
+            "candidates": [
+                {
+                    "class_name": "dynamic",
+                    "dynamic_text": "pp",
+                    "bbox_xyxy": [30, 25, 55, 45],
+                    "confidence": 0.9,
+                }
+            ]
+        }
+        suppress_embedded_dynamic_words(document, image)
+        self.assertEqual(len(document["candidates"]), 1)
+        self.assertEqual(document["embedded_text_dynamic_filter"]["rejected_count"], 0)
+
     def test_regular_repeated_threes_are_reclassified_as_triplets(self):
         document = {
             "candidates": [

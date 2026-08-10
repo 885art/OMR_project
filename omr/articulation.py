@@ -355,7 +355,7 @@ def _dynamic_is_embedded_in_word(
     left_neighbor = False
     right_neighbor = False
     for component_x, component_y, width, component_height, area in stats[1:]:
-        if area < 3:
+        if width < 0.12 * height or area < 0.035 * height * height:
             continue
         component_x2 = component_x + width
         component_y2 = component_y + component_height
