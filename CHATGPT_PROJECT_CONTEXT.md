@@ -390,6 +390,20 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-10: Completed a full three-page piano conversion of the imported
+  `Beethoven_Op027No2-01` score after visually verifying the initial cut-time
+  signature as 2/2. The first uncached run took about 455 seconds and produced
+  three page MusicXML files plus one merged two-part, piano-braced MusicXML.
+  `music21` successfully parsed the merged file. Page-level symbol candidates
+  were 56, 80, and 51 (the one page-1 candidate outside the ordinary association
+  count was an XML-eligible tuplet); curve relations were 20, 25, and 27, all
+  candidate-eligible. The merged XML contains 787 `<note>` elements, 44
+  directions, 107 fingerings, one staccato, 34 tuplet tags, and 92 slur endpoint
+  tags (46 written slur relations), with no written ties. This remains a smoke
+  result rather than accuracy evidence: the runtime warned about five zero-beat
+  bars, not every eligible curve had two exported note objects, and visual review
+  still shows symbol-class false positives requiring correction. The legacy ONNX
+  stages used CPU fallback while both YOLOv9 models used the RTX 3090.
 - 2026-08-10: Added `server/import_bpsd_piano_images.py` to prepare the 243
   BPSD JPEG pages for the legacy OMR25 input layout without changing source
   files. The importer validates the final numeric page suffix, rejects gaps and
