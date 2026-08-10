@@ -390,6 +390,17 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-10: Completed a one-page full ensemble-mode conversion of the original
+  Beethoven Op. 18 No. 1 string-quartet source at 3/4, using four tracks and the
+  current Piano50/curve-v2 detectors. The first uncached run took about 167
+  seconds. All 151 displayed articulation candidates were associated, and all
+  73 curve relations were both candidate-eligible and represented in the output
+  as 68 slurs plus five ties. The four-part merged MusicXML parsed successfully
+  with `music21` and contains 547 `<note>` elements, 64 directions, 41 dynamics,
+  83 staccatos, one fingering, and two tuplet tags. Unlike the three-page piano
+  smoke, this page emitted no zero-beat-bar warning. Visual review still shows
+  text/direction false positives in title and instrument-label regions, so the
+  result remains a functional comparison smoke rather than accuracy evidence.
 - 2026-08-10: Completed a full three-page piano conversion of the imported
   `Beethoven_Op027No2-01` score after visually verifying the initial cut-time
   signature as 2/2. The first uncached run took about 455 seconds and produced
