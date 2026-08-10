@@ -120,7 +120,7 @@ Tuplet 數字會嘗試尋找同一個 staff 上對應的音符範圍。
 
 目前結果：
 
-- articulation／piano：26 個測試通過。
+- articulation／piano：30 個測試通過。
 - slur／tie：14 個測試通過。
 
 ### 單張鋼琴譜模型整合測試
@@ -134,6 +134,20 @@ Tuplet 數字會嘗試尋找同一個 staff 上對應的音符範圍。
 ```
 
 這個測試會實際載入 Piano50 和 curve v2，執行 OCR、hairpin、curve 幾何處理並輸出檢查圖，但不會測試完整的舊節奏分析。
+
+### 批次產生鋼琴符號框與 JSON
+
+需要同時檢查多張鋼琴譜、但暫時不跑完整 MusicXML 時，可使用批次工具。模型只載入一次，輸出會包含每頁原圖、符號框、curve 框、兩種 JSON 與 HTML 總覽：
+
+```powershell
+& 'C:\Users\minemine\miniconda3\envs\omr\python.exe' `
+  'C:\OMR_work\25-omr\server\batch_integrated_piano_pages.py' `
+  --input-dir 'C:\path\to\piano_pages' `
+  --output-dir 'C:\OMR_work\experiments\piano_symbol_review' `
+  --glob '*.jpeg' --limit 10 --device 0
+```
+
+這個模式沒有執行舊音符／節奏解析，所以 JSON 不包含 NoteGroup 端點配對，也不能直接當成 MusicXML 接受結果或準確率。
 
 ### 完整 OMR25 主程式
 

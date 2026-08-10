@@ -324,8 +324,8 @@ for private server values.
   4,474 tiles, 52,269 tile instances, 0 clipped labels, and 0 unassigned source
   annotations. YOLOv9-E RTX 3090 preflight passed. A separate 1-epoch 1280,
   batch-4 smoke completed training, validation, and checkpoint writing.
-- On 2026-08-10, 26 articulation/piano tests and 14 slur/tie tests passed after
-  the OMR25 integration and all-detected policy changes.
+- On 2026-08-10, 30 articulation/piano tests and 14 slur/tie tests passed after
+  the OMR25 integration, all-detected policy, importer, and batch-review changes.
 - A real BPSD page completed the full legacy `pdf2musicXML.py` pipeline in
   two-staff piano mode. After enabling `all_detected`, it produced a braced
   two-part MusicXML with 451 notes, 30 directions, 51 staccato marks, 17
@@ -376,6 +376,8 @@ Useful command:
   settings.
 - `server/smoke_integrated_piano_page.py`: one-page real-model integration
   smoke without the complete legacy note/rhythm pipeline.
+- `server/batch_integrated_piano_pages.py`: multi-page symbol/curve JSON and
+  HTML gallery generation with one model load.
 
 ## 13. Handoff prompt for another ChatGPT
 
@@ -390,6 +392,17 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-10: Added a reusable batch mode for detector-only piano review by
+  factoring `run_page` from the single-page smoke and adding
+  `server/batch_integrated_piano_pages.py`. It produces symbol/curve JPEGs and
+  JSON for every page, a machine-readable batch summary, and an HTML gallery,
+  while reusing both loaded YOLOv9 models. The fixed ten-page BPSD set completed
+  in about 37 seconds and produced ten symbol JSON/JPEG pairs plus ten curve
+  JSON/JPEG pairs: 1,133 displayed symbol candidates and 448 retained curve
+  candidates. Output is at
+  `C:\OMR_work\experiments\piano_symbols_json_20260810_10pages`. This mode
+  intentionally skips legacy NoteGroup/rhythm analysis; the counts are review
+  candidates, not MusicXML acceptance counts or ground-truth accuracy.
 - 2026-08-10: Completed a one-page full ensemble-mode conversion of the original
   Beethoven Op. 18 No. 1 string-quartet source at 3/4, using four tracks and the
   current Piano50/curve-v2 detectors. The first uncached run took about 167

@@ -70,21 +70,17 @@ def detect_staffs(image: np.ndarray) -> list[SmokeStaff]:
     return staffs
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--device", default="0")
-    args = parser.parse_args()
+def run_page(source: Path, output: Path, device: str = "0") -> dict:
+    """Run both integrated detectors on one page and return a compact summary."""
 
-    source = args.image.expanduser().resolve()
+    source = source.expanduser().resolve()
+    output = output.expanduser().resolve()
     image = cv2.imread(str(source), cv2.IMREAD_COLOR)
     if image is None:
         raise FileNotFoundError(source)
     staffs = detect_staffs(image)
     if not staffs:
         raise RuntimeError("No five-line staffs found; integration smoke cannot continue")
-    output = args.output_dir.expanduser().resolve()
     symbol_document = process_page_articulations(
         source,
         source.stem,
@@ -96,7 +92,7 @@ def main() -> int:
         mapping_path=REPO_ROOT / "articulation_experiments/dataset/class_mapping_piano.json",
         backend="yolov9",
         yolov9_root=REPO_ROOT.parent / "yolov9",
-        device=args.device,
+        device=device,
         confidence=0.05,
         tile_size=512,
         overlap=128,
@@ -126,7 +122,7 @@ def main() -> int:
         data_yaml=YOLOV9_CURVE_DATA,
         mapping_path=YOLOV9_CURVE_MAPPING,
         yolov9_root=REPO_ROOT.parent / "yolov9",
-        device=args.device,
+        device=device,
         confidence=0.10,
         tile_size=2048,
         overlap=1024,
@@ -154,6 +150,18 @@ def main() -> int:
             "the legacy note/rhythm pipeline must supply NoteGroup objects."
         ),
     }
+    return summary
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--image", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--device", default="0")
+    args = parser.parse_args()
+
+    output = args.output_dir.expanduser().resolve()
+    summary = run_page(args.image, output, args.device)
     output.mkdir(parents=True, exist_ok=True)
     (output / "summary.json").write_text(
         json.dumps(summary, indent=2) + "\n", encoding="utf-8"
