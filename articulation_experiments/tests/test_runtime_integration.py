@@ -46,6 +46,11 @@ def candidate(class_name, side, bbox, confidence=0.9):
 
 
 class RuntimeIntegrationTest(unittest.TestCase):
+    def test_arpeggio_threshold_rejects_weak_rest_confusions(self):
+        from omr.articulation import DEFAULT_CLASS_CONFIDENCE
+
+        self.assertEqual(DEFAULT_CLASS_CONFIDENCE["arpeggio"], 0.75)
+
     def test_many_to_one_mapping_exports_visual_class(self):
         merged = {
             "image_id": "page",

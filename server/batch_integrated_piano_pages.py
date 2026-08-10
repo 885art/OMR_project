@@ -69,7 +69,10 @@ def write_gallery(output_dir: Path, pages: list[dict]) -> Path:
 body{{font-family:system-ui,sans-serif;margin:24px;background:#111;color:#eee}}
 a{{color:#7dcfff}} section{{margin-bottom:48px;border-top:1px solid #555}}
 .note{{max-width:1100px;line-height:1.7;color:#ddd}}
-.legend{{display:flex;flex-wrap:wrap;gap:10px 18px;margin:18px 0 28px}}
+.legend-wrap{{position:sticky;top:0;z-index:20;background:#181818f2;border:1px solid #555;
+padding:8px 12px;margin:18px 0 28px;border-radius:8px}}
+.legend-wrap summary{{cursor:pointer;font-weight:700}}
+.legend{{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;font-size:13px}}
 .legend span{{display:inline-flex;align-items:center;gap:7px}}
 .swatch{{width:18px;height:12px;border:2px solid currentColor;border-radius:2px}}
 .grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}}
@@ -80,16 +83,32 @@ figcaption{{text-align:center;margin-top:6px}} @media(max-width:900px){{.grid{{g
 Piano50 符號模型與 curve-v2 模型批次跑完後，集中顯示圖片與 JSON。此頁只檢查模型偵測，
 尚未執行舊 OMR25 的音符／節奏解析，因此 curve 先統一標成綠色「偵測到」，不能在這一步判定 slur 或 tie，
 也不代表已經寫入 MusicXML。</p>
+<details class="legend-wrap" open><summary>完整顏色圖例（可收合，捲動時固定顯示）</summary>
 <div class="legend" aria-label="顏色圖例">
   <span style="color:#377eb8"><i class="swatch"></i>staccato</span>
   <span style="color:#e41a1c"><i class="swatch"></i>accent</span>
+  <span style="color:#984ea3"><i class="swatch"></i>tenuto</span>
+  <span style="color:#4daf4a"><i class="swatch"></i>staccatissimo</span>
+  <span style="color:#ff7f00"><i class="swatch"></i>marcato</span>
+  <span style="color:#a65628"><i class="swatch"></i>fermata</span>
+  <span style="color:#f781bf"><i class="swatch"></i>caesura</span>
+  <span style="color:#00a6a6"><i class="swatch"></i>trill</span>
+  <span style="color:#1f78b4"><i class="swatch"></i>turn</span>
+  <span style="color:#6a3d9a"><i class="swatch"></i>inverted turn</span>
+  <span style="color:#b15928"><i class="swatch"></i>mordent</span>
   <span style="color:#d62728"><i class="swatch"></i>dynamic</span>
-  <span style="color:#ff7f00"><i class="swatch"></i>fingering／其他符號</span>
+  <span style="color:#ff7f00"><i class="swatch"></i>fingering／tuplet／direction text</span>
   <span style="color:#2ca02c"><i class="swatch"></i>crescendo</span>
   <span style="color:#17becf"><i class="swatch"></i>diminuendo</span>
+  <span style="color:#8c564b"><i class="swatch"></i>down bow</span>
+  <span style="color:#9467bd"><i class="swatch"></i>up bow</span>
+  <span style="color:#bcbd22"><i class="swatch"></i>arpeggio（琶音）</span>
+  <span style="color:#7f7f7f"><i class="swatch"></i>pedal start</span>
+  <span style="color:#4d4d4d"><i class="swatch"></i>pedal stop</span>
   <span style="color:#e729d3"><i class="swatch"></i>raw s（合併前候選）</span>
   <span style="color:#00b400"><i class="swatch"></i>curve（尚未分 slur/tie）</span>
 </div>
+</details>
 {''.join(cards)}</body></html>"""
     index_path = output_dir / "index.html"
     index_path.write_text(document, encoding="utf-8")

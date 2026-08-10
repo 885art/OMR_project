@@ -445,7 +445,13 @@ The user can paste this:
   `sempre` disappeared, the true adjacent `pp` became one token, the missing
   decrescendo beside a crescendo was recovered, and the reported duplicate
   hairpin became one union box. Raw detections remain available in JSON for
-  audit. Focused test totals are now 38 articulation/piano plus 14 curve tests.
+  audit. Focused test totals are now 39 articulation/piano plus 14 curve tests.
+- 2026-08-10: Expanded the piano review gallery from 10 to 20 pages with ten
+  pages sampled across five additional Beethoven sonatas. The larger sample
+  exposed weak 0.40-0.50 arpeggio predictions on rests and straight strokes;
+  confirmed vertical wavy arpeggios in the same review set were around 0.95.
+  The final arpeggio threshold is now 0.75. The batch HTML now has a sticky,
+  collapsible full color legend covering every displayed symbol class.
 - 2026-08-10: Completed a full three-page piano conversion of the imported
   `Beethoven_Op027No2-01` score after visually verifying the initial cut-time
   signature as 2/2. The first uncached run took about 455 seconds and produced

@@ -61,7 +61,9 @@ DEFAULT_CLASS_CONFIDENCE = {
     "direction_text": 0.45,
     "down_bow": 0.40,
     "up_bow": 0.40,
-    "arpeggio": 0.40,
+    # Valid vertical wavy arpeggios are strong (~0.95) in the reviewed piano
+    # pages; weaker proposals around 0.40-0.50 were rests and straight strokes.
+    "arpeggio": 0.75,
     # OCR must confirm weaker Ped. proposals; this avoids turning cresc./decresc.
     # text into piano pedal events.
     "pedal_start": 0.78,

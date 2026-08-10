@@ -39,6 +39,8 @@ class BatchPianoPagesTest(unittest.TestCase):
             self.assertIn("curves/page.slurs_ties.json", text)
             self.assertIn("沿用既有推論程式", text)
             self.assertIn("顏色圖例", text)
+            self.assertIn("arpeggio（琶音）", text)
+            self.assertIn("position:sticky", text)
             self.assertIn("curve（尚未分 slur/tie）", text)
             self.assertIn("raw s（合併前候選）", text)
             self.assertIn("3 outside filtered", text)
