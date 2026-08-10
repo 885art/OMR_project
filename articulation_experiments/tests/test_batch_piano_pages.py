@@ -35,6 +35,9 @@ class BatchPianoPagesTest(unittest.TestCase):
             text = index.read_text(encoding="utf-8")
             self.assertIn("symbols/page.articulations.json", text)
             self.assertIn("curves/page.slurs_ties.json", text)
+            self.assertIn("沿用既有推論程式", text)
+            self.assertIn("顏色圖例", text)
+            self.assertIn("curve（尚未分 slur/tie）", text)
 
 
 if __name__ == "__main__":

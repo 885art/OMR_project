@@ -748,7 +748,16 @@ def add_slurs_to_stream(score: Any, registry: dict[str, dict[str, Any]]) -> int:
     return added
 
 
-def _draw_debug(image: np.ndarray, document: dict[str, Any], note_groups: list[Any], coordinate_scale: float | tuple[float, float]) -> np.ndarray:
+def _draw_debug(
+    image: np.ndarray,
+    document: dict[str, Any],
+    note_groups: list[Any],
+    coordinate_scale: float | tuple[float, float],
+    visualization_mode: str = "association",
+) -> np.ndarray:
+    visualization_mode = str(visualization_mode).lower()
+    if visualization_mode not in {"association", "detector"}:
+        raise ValueError(f"Unsupported curve visualization mode: {visualization_mode}")
     scale_x, scale_y = _scale_pair(coordinate_scale)
     canvas = image.copy()
     if canvas.ndim == 2:
@@ -761,7 +770,10 @@ def _draw_debug(image: np.ndarray, document: dict[str, Any], note_groups: list[A
     for candidate in document["candidates"]:
         kind = candidate.get("predicted_type", "unknown_curve")
         xml_eligible = bool(candidate.get("xml_eligible", False))
-        color = colors.get(kind, (128, 128, 128)) if xml_eligible else (150, 150, 150)
+        detector_view = visualization_mode == "detector"
+        color = (0, 180, 0) if detector_view else (
+            colors.get(kind, (128, 128, 128)) if xml_eligible else (150, 150, 150)
+        )
         x0, y0, x1, y1 = (int(round(value)) for value in candidate["bbox_xyxy"])
         cv2.rectangle(canvas, (x0, y0), (x1, y1), color, 2)
         left = tuple(int(round(value)) for value in candidate["left_endpoint"])
@@ -773,8 +785,11 @@ def _draw_debug(image: np.ndarray, document: dict[str, Any], note_groups: list[A
                 center = group_centers.get(candidate[key])
                 if center:
                     cv2.line(canvas, endpoint, tuple(int(round(v)) for v in center), color, 1)
-        status = "xml" if xml_eligible else "review"
-        label = f"{kind} {status} {candidate.get('classification_confidence', candidate['confidence']):.2f}"
+        if detector_view:
+            label = f"curve detected {candidate['confidence']:.2f}"
+        else:
+            status = "xml" if xml_eligible else "review"
+            label = f"{kind} {status} {candidate.get('classification_confidence', candidate['confidence']):.2f}"
         cv2.putText(canvas, label, (x0, max(12, y0 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
     return canvas
 
@@ -790,6 +805,7 @@ def process_page_slurs_ties(
     max_tie_span_units: float = DEFAULT_MAX_TIE_SPAN_UNITS,
     xml_confidence: float = DEFAULT_XML_CONFIDENCE,
     visualize: bool = False,
+    visualization_mode: str = "association",
     backend: str = "auto",
     weights: str | Path = YOLOV9_CURVE_WEIGHTS,
     data_yaml: str | Path = YOLOV9_CURVE_DATA,
@@ -862,6 +878,12 @@ def process_page_slurs_ties(
         json.dumps(document, indent=2) + "\n", encoding="utf-8"
     )
     if visualize:
-        debug = _draw_debug(image, document, note_groups, coordinate_scale)
+        debug = _draw_debug(
+            image,
+            document,
+            note_groups,
+            coordinate_scale,
+            visualization_mode=visualization_mode,
+        )
         cv2.imwrite(str(destination / f"{image_id}.slurs_ties.jpg"), debug)
     return document

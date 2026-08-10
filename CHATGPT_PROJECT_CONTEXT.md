@@ -392,6 +392,14 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-10: Clarified and corrected detector-only batch visualization. The
+  batch page is explicitly described as a wrapper around the existing Piano50
+  and curve-v2 inference path, not a separate model or training tool. Symbol
+  candidates now retain their class colors even when NoteGroup parsing is
+  intentionally skipped, curve candidates are green and labeled `detected`,
+  and the HTML gallery includes a color legend. These colors indicate raw
+  detections only; slur/tie classification and MusicXML eligibility still
+  require the full OMR25 note-association path.
 - 2026-08-10: Added a reusable batch mode for detector-only piano review by
   factoring `run_page` from the single-page smoke and adding
   `server/batch_integrated_piano_pages.py`. It produces symbol/curve JPEGs and

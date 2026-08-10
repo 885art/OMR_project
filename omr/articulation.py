@@ -807,6 +807,7 @@ def process_page_articulations(
     validate_hairpins: bool = True,
     detect_geometry_hairpins: bool = True,
     acceptance_policy: str = "conservative",
+    visualization_mode: str = "association",
 ) -> dict[str, Any]:
     """Detect, associate, persist, and visualize articulations for one page."""
 
@@ -968,6 +969,11 @@ def process_page_articulations(
     json_path = destination / f"{image_id}.articulations.json"
     json_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
+    visualization_mode = str(visualization_mode).lower()
+    if visualization_mode not in {"association", "detector"}:
+        raise ValueError(
+            f"Unsupported articulation visualization mode: {visualization_mode}"
+        )
     canvas = page.copy()
     draw = ImageDraw.Draw(canvas)
     colors = {
@@ -981,8 +987,9 @@ def process_page_articulations(
     }
     for candidate in document["candidates"]:
         matched = candidate["association_status"] == "matched"
-        color = colors.get(candidate["class_name"], "#ff7f00") if matched else "#999999"
-        draw.rectangle(candidate["bbox_xyxy"], outline=color, width=4 if matched else 2)
+        show_class_color = matched or visualization_mode == "detector"
+        color = colors.get(candidate["class_name"], "#ff7f00") if show_class_color else "#999999"
+        draw.rectangle(candidate["bbox_xyxy"], outline=color, width=4 if show_class_color else 2)
         display_name = candidate.get("dynamic_text", candidate["class_name"])
         label = f"{display_name} {candidate['confidence']:.2f}"
         if matched:

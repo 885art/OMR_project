@@ -105,6 +105,7 @@ def run_page(source: Path, output: Path, device: str = "0") -> dict:
         validate_hairpins=True,
         detect_geometry_hairpins=True,
         acceptance_policy="all_detected",
+        visualization_mode="detector",
     )
     confirmed_hairpins = [
         candidate
@@ -133,6 +134,7 @@ def run_page(source: Path, output: Path, device: str = "0") -> dict:
         acceptance_policy="all_detected",
         confirmed_hairpins=confirmed_hairpins,
         visualize=True,
+        visualization_mode="detector",
     )
     summary = {
         "source": str(source),
