@@ -233,6 +233,18 @@ class RuntimeIntegrationTest(unittest.TestCase):
         self.assertEqual(document["candidates"][0]["dynamic_text"], "mf")
         self.assertEqual(len(document["rejected_dynamic_letter_detections"]), 1)
 
+    def test_dynamic_letters_are_clustered_in_reading_order_not_y_order(self):
+        staff = FakeStaff((80, 90, 100, 110, 120))
+        document = {
+            "candidates": [
+                candidate("dynamic_letter_p", None, (90, 126, 98, 138)),
+                candidate("dynamic_letter_p", None, (99, 124, 107, 136)),
+            ]
+        }
+        combine_dynamic_letters(document, [staff])
+        self.assertEqual(document["combined_dynamic_count"], 1)
+        self.assertEqual(document["candidates"][0]["dynamic_text"], "pp")
+
     def test_hairpin_associates_two_endpoints(self):
         groups = [FakeGroup((95, 95, 105, 105)), FakeGroup((195, 95, 205, 105))]
         staff = FakeStaff((80, 90, 100, 110, 120))

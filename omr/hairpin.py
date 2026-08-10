@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Iterable
 
 import cv2
@@ -187,6 +188,155 @@ def detect_hairpins(
     return kept
 
 
+def _intersection_over_smaller(a: Iterable[float], b: Iterable[float]) -> float:
+    ax1, ay1, ax2, ay2 = (float(value) for value in a)
+    bx1, by1, bx2, by2 = (float(value) for value in b)
+    intersection = max(0.0, min(ax2, bx2) - max(ax1, bx1)) * max(
+        0.0, min(ay2, by2) - max(ay1, by1)
+    )
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    smaller = min(area_a, area_b)
+    return intersection / smaller if smaller else 0.0
+
+
+def merge_overlapping_hairpin_fragments(
+    predictions: list[dict[str, Any]],
+    *,
+    minimum_horizontal_overlap: float = 0.15,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Union tile-overlap fragments before re-running wedge classification."""
+
+    hairpins = [
+        dict(item)
+        for item in predictions
+        if "Hairpin" in str(item.get("raw_class_name", ""))
+    ]
+    audit: list[dict[str, Any]] = []
+    changed = True
+    while changed:
+        changed = False
+        for first_index, first in enumerate(hairpins):
+            fx1, fy1, fx2, fy2 = (float(value) for value in first["bbox_xyxy"])
+            first_height = max(1.0, fy2 - fy1)
+            for second_index in range(first_index + 1, len(hairpins)):
+                second = hairpins[second_index]
+                sx1, sy1, sx2, sy2 = (
+                    float(value) for value in second["bbox_xyxy"]
+                )
+                second_height = max(1.0, sy2 - sy1)
+                horizontal_overlap = max(0.0, min(fx2, sx2) - max(fx1, sx1))
+                horizontal_ratio = horizontal_overlap / max(
+                    1.0, min(fx2 - fx1, sx2 - sx1)
+                )
+                vertical_overlap = max(0.0, min(fy2, sy2) - max(fy1, sy1))
+                vertical_ratio = vertical_overlap / min(first_height, second_height)
+                center_distance = abs((fy1 + fy2) / 2.0 - (sy1 + sy2) / 2.0)
+                if (
+                    horizontal_ratio < minimum_horizontal_overlap
+                    or vertical_ratio < 0.65
+                    or center_distance > 0.60 * max(first_height, second_height)
+                ):
+                    continue
+                sources = [first, second]
+                merged = dict(
+                    max(sources, key=lambda item: float(item.get("confidence", 0.0)))
+                )
+                merged["bbox_xyxy"] = [
+                    min(fx1, sx1),
+                    min(fy1, sy1),
+                    max(fx2, sx2),
+                    max(fy2, sy2),
+                ]
+                merged["confidence"] = max(
+                    float(first.get("confidence", 0.0)),
+                    float(second.get("confidence", 0.0)),
+                )
+                merged["fragment_count"] = int(first.get("fragment_count", 1)) + int(
+                    second.get("fragment_count", 1)
+                )
+                merged["source_bboxes"] = list(first.get("source_bboxes", [first["bbox_xyxy"]])) + list(
+                    second.get("source_bboxes", [second["bbox_xyxy"]])
+                )
+                record = {
+                    "bbox_xyxy": list(merged["bbox_xyxy"]),
+                    "source_bboxes": list(merged["source_bboxes"]),
+                    "source_class_names": [
+                        str(first.get("raw_class_name", "")),
+                        str(second.get("raw_class_name", "")),
+                    ],
+                }
+                audit.append(record)
+                hairpins[first_index] = merged
+                del hairpins[second_index]
+                changed = True
+                break
+            if changed:
+                break
+    return hairpins, audit
+
+
+def detect_adjacent_hairpins(
+    image: Image.Image,
+    anchors: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Search beside confirmed wedges for an immediately adjacent inverse wedge."""
+
+    proposals: list[dict[str, Any]] = []
+    for anchor in anchors:
+        x1, y1, x2, y2 = (float(value) for value in anchor["bbox_xyxy"])
+        width = max(24.0, x2 - x1)
+        height = max(5.0, y2 - y1)
+        vertical_pad = max(5, round(height * 0.38))
+        for side, left, right in (
+            ("left", x1 - 2.0 * width, x1 + 0.10 * width),
+            ("right", x2 - 0.10 * width, x2 + 2.0 * width),
+        ):
+            crop_box = (
+                max(0, math.floor(left)),
+                max(0, round(y1) - vertical_pad),
+                min(image.width, math.ceil(right)),
+                min(image.height, round(y2) + vertical_pad),
+            )
+            if crop_box[2] - crop_box[0] < 24 or crop_box[3] - crop_box[1] < 8:
+                continue
+            detected = detect_hairpins(
+                image.crop(crop_box),
+                min_line_length=max(12, round(width * 0.21)),
+                max_opening=max(10, round(height * 1.8)),
+                max_closed_ratio=0.80,
+            )
+            for proposal in detected:
+                px1, py1, px2, py2 = (float(value) for value in proposal["bbox_xyxy"])
+                item = dict(proposal)
+                item["bbox_xyxy"] = [
+                    px1 + crop_box[0],
+                    py1 + crop_box[1],
+                    px2 + crop_box[0],
+                    py2 + crop_box[1],
+                ]
+                if _intersection_over_smaller(item["bbox_xyxy"], anchor["bbox_xyxy"]) >= 0.25:
+                    continue
+                item["class_id"] = 38 if item["class_name"] == "crescendo" else 39
+                item["source"] = "adjacent_opencv_line_pair"
+                item["decision"] = "review"
+                item["decision_reason"] = f"adjacent_{side}_of_confirmed_hairpin"
+                item["anchor_bbox_xyxy"] = list(anchor["bbox_xyxy"])
+                proposals.append(item)
+    kept: list[dict[str, Any]] = []
+    for proposal in sorted(
+        proposals, key=lambda item: float(item.get("confidence", 0.0)), reverse=True
+    ):
+        if any(
+            _intersection_over_smaller(proposal["bbox_xyxy"], existing["bbox_xyxy"])
+            >= 0.35
+            for existing in kept + anchors
+        ):
+            continue
+        kept.append(proposal)
+    return kept
+
+
 def validate_yolo_hairpins(
     image: Image.Image,
     predictions: list[dict[str, Any]],
@@ -272,18 +422,6 @@ def validate_yolo_hairpins(
             continue
         deduplicated.append(item)
     return deduplicated, rejected
-
-
-def _intersection_over_smaller(a: Iterable[float], b: Iterable[float]) -> float:
-    ax1, ay1, ax2, ay2 = (float(value) for value in a)
-    bx1, by1, bx2, by2 = (float(value) for value in b)
-    intersection = max(0.0, min(ax2, bx2) - max(ax1, bx1)) * max(
-        0.0, min(ay2, by2) - max(ay1, by1)
-    )
-    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
-    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
-    smaller = min(area_a, area_b)
-    return intersection / smaller if smaller else 0.0
 
 
 def suppress_curve_hairpin_conflicts(

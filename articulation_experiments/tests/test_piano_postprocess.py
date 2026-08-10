@@ -6,9 +6,17 @@ from unittest.mock import patch
 from PIL import Image, ImageDraw
 
 from omr.curve_postprocess import collapse_curve_duplicates, merge_curve_fragments
-from omr.hairpin import validate_yolo_hairpins
+from omr.hairpin import (
+    detect_adjacent_hairpins,
+    merge_overlapping_hairpin_fragments,
+    validate_yolo_hairpins,
+)
 from omr.parentheses import suppress_parentheses
-from omr.articulation import filter_outside_music_region_candidates
+from omr.articulation import (
+    filter_outside_music_region_candidates,
+    reclassify_repeated_triplet_numbers,
+    suppress_embedded_dynamic_words,
+)
 from omr.text_directions import normalize_direction_word, recognize_pedal_word_candidates
 from omr.tuplet import associate_tuplet_candidates
 
@@ -62,6 +70,102 @@ class PianoPostprocessTest(unittest.TestCase):
         accepted, rejected = validate_yolo_hairpins(staff, [prediction])
         self.assertFalse(accepted)
         self.assertEqual(rejected[0]["decision"], "reject")
+
+    def test_overlapping_hairpin_tile_fragments_are_unioned(self):
+        merged, audit = merge_overlapping_hairpin_fragments(
+            [
+                {
+                    "raw_class_name": "dynamicCrescendoHairpin",
+                    "bbox_xyxy": [100, 40, 260, 60],
+                    "confidence": 0.7,
+                },
+                {
+                    "raw_class_name": "dynamicDiminuendoHairpin",
+                    "bbox_xyxy": [230, 41, 390, 61],
+                    "confidence": 0.6,
+                },
+                {
+                    "raw_class_name": "dynamicCrescendoHairpin",
+                    "bbox_xyxy": [430, 40, 520, 60],
+                    "confidence": 0.8,
+                },
+            ]
+        )
+        self.assertEqual(len(merged), 2)
+        combined = next(item for item in merged if item.get("fragment_count") == 2)
+        self.assertEqual(combined["bbox_xyxy"], [100.0, 40.0, 390.0, 61.0])
+        self.assertEqual(len(audit), 1)
+
+    def test_adjacent_inverse_hairpin_is_recovered(self):
+        image = Image.new("RGB", (360, 100), "white")
+        draw = ImageDraw.Draw(image)
+        draw.line((30, 45, 120, 30), fill="black", width=2)
+        draw.line((30, 45, 120, 60), fill="black", width=2)
+        draw.line((150, 30, 240, 45), fill="black", width=2)
+        draw.line((150, 60, 240, 45), fill="black", width=2)
+        recovered = detect_adjacent_hairpins(
+            image,
+            [{"bbox_xyxy": [25, 25, 125, 65], "class_name": "crescendo"}],
+        )
+        self.assertTrue(
+            any(item["class_name"] == "diminuendo" for item in recovered)
+        )
+
+    def test_dynamic_fragment_embedded_in_word_is_suppressed(self):
+        image = Image.new("RGB", (160, 80), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((10, 25, 18, 45), fill="black")
+        draw.rectangle((20, 25, 38, 45), fill="black")
+        draw.rectangle((40, 25, 48, 45), fill="black")
+        document = {
+            "candidates": [
+                {
+                    "class_name": "dynamic",
+                    "dynamic_text": "mp",
+                    "bbox_xyxy": [20, 25, 38, 45],
+                    "confidence": 0.9,
+                },
+                {
+                    "class_name": "dynamic",
+                    "dynamic_text": "pp",
+                    "bbox_xyxy": [100, 25, 120, 45],
+                    "confidence": 0.9,
+                },
+            ]
+        }
+        suppress_embedded_dynamic_words(document, image)
+        self.assertEqual([item["dynamic_text"] for item in document["candidates"]], ["pp"])
+        self.assertEqual(
+            document["embedded_text_dynamic_candidates"][0]["decision_reason"],
+            "dynamic_token_embedded_in_word",
+        )
+
+    def test_regular_repeated_threes_are_reclassified_as_triplets(self):
+        document = {
+            "candidates": [
+                {
+                    "class_name": "fingering_3",
+                    "bbox_xyxy": [x, 135, x + 8, 147],
+                    "confidence": 0.9,
+                }
+                for x in (100, 160, 220)
+            ]
+            + [
+                {
+                    "class_name": "fingering_3",
+                    "bbox_xyxy": [300, 90, 308, 102],
+                    "confidence": 0.9,
+                }
+            ]
+        }
+        reclassify_repeated_triplet_numbers(document, [FakeStaff()])
+        self.assertEqual(
+            [item["class_name"] for item in document["candidates"]],
+            ["tuplet_3", "tuplet_3", "tuplet_3", "fingering_3"],
+        )
+        self.assertEqual(
+            document["repeated_triplet_reclassification"]["reclassified_count"], 3
+        )
 
     def test_curve_fragments_merge_only_when_aligned(self):
         merged = merge_curve_fragments(

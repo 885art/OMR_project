@@ -432,6 +432,20 @@ The user can paste this:
   smoke, this page emitted no zero-beat-bar warning. Visual review still shows
   text/direction false positives in title and instrument-label regions, so the
   result remains a functional comparison smoke rather than accuracy evidence.
+- 2026-08-10: Added general piano postprocessing for the three-piece visual
+  review set. Dynamic letters now cluster in horizontal reading order; dynamic
+  fragments with ordinary word ink on both sides are rejected to audit JSON;
+  and raw S debug boxes are displayed only beside a plausible F. Regular runs
+  of at least three widely spaced fingering-3 detections on one staff baseline
+  are reclassified as `tuplet_3`, correcting the repeated triplet numerals in
+  Beethoven Op. 27 No. 2 while leaving isolated fingerings unchanged. Hairpin
+  tile fragments are unioned before wedge reclassification, and narrow
+  geometry searches beside accepted hairpins recover immediately adjacent
+  inverse wedges. The ten-page gallery was regenerated: the false `mp` inside
+  `sempre` disappeared, the true adjacent `pp` became one token, the missing
+  decrescendo beside a crescendo was recovered, and the reported duplicate
+  hairpin became one union box. Raw detections remain available in JSON for
+  audit. Focused test totals are now 37 articulation/piano plus 14 curve tests.
 - 2026-08-10: Completed a full three-page piano conversion of the imported
   `Beethoven_Op027No2-01` score after visually verifying the initial cut-time
   signature as 2/2. The first uncached run took about 455 seconds and produced

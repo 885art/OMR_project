@@ -253,8 +253,8 @@ def combine_dynamic_letters(
         letters,
         key=lambda item: (
             item["staff_index"] if item["staff_index"] is not None else -1,
-            item["cy"],
             item["cx"],
+            item["cy"],
         ),
     ):
         chosen = None
@@ -313,6 +313,200 @@ def combine_dynamic_letters(
     candidates_document["candidates"] = retained + combined
     candidates_document["candidate_count"] = len(candidates_document["candidates"])
     candidates_document["combined_dynamic_count"] = len(combined)
+    return candidates_document
+
+
+def _dynamic_is_embedded_in_word(
+    image: Any,
+    bbox: Iterable[float],
+) -> tuple[bool, dict[str, Any]]:
+    """Return whether a dynamic token has letter-like ink on both sides.
+
+    This rejects detector fragments such as ``mp`` inside *sempre* without
+    maintaining a score-specific word list. Parentheses are deliberately too
+    tall for the neighbour test, so parenthesized musical dynamics survive.
+    """
+
+    import cv2
+    import numpy as np
+
+    x1, y1, x2, y2 = (float(value) for value in bbox)
+    height = max(1.0, y2 - y1)
+    horizontal_guard = max(4, round(height * 0.70))
+    vertical_guard = max(2, round(height * 0.18))
+    crop_box = (
+        max(0, round(x1) - horizontal_guard),
+        max(0, round(y1) - vertical_guard),
+        min(image.width, round(x2) + horizontal_guard),
+        min(image.height, round(y2) + vertical_guard),
+    )
+    if crop_box[2] <= crop_box[0] or crop_box[3] <= crop_box[1]:
+        return False, {"left_neighbor": False, "right_neighbor": False}
+    gray = cv2.cvtColor(
+        np.asarray(image.crop(crop_box).convert("RGB")), cv2.COLOR_RGB2GRAY
+    )
+    ink = cv2.threshold(
+        gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )[1]
+    _, _, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
+    local_x1 = x1 - crop_box[0]
+    local_x2 = x2 - crop_box[0]
+    local_mid_y = (y1 + y2) / 2.0 - crop_box[1]
+    left_neighbor = False
+    right_neighbor = False
+    for component_x, component_y, width, component_height, area in stats[1:]:
+        if area < 3:
+            continue
+        component_x2 = component_x + width
+        component_y2 = component_y + component_height
+        if not 0.22 * height <= component_height <= 1.35 * height:
+            continue
+        if not component_y - 0.25 * height <= local_mid_y <= component_y2 + 0.25 * height:
+            continue
+        if component_x2 <= local_x1 and local_x1 - component_x2 <= horizontal_guard:
+            left_neighbor = True
+        if component_x >= local_x2 and component_x - local_x2 <= horizontal_guard:
+            right_neighbor = True
+    return left_neighbor and right_neighbor, {
+        "left_neighbor": left_neighbor,
+        "right_neighbor": right_neighbor,
+        "crop_bbox_xyxy": list(crop_box),
+    }
+
+
+def suppress_embedded_dynamic_words(
+    candidates_document: dict[str, Any],
+    image: Any,
+) -> dict[str, Any]:
+    """Remove final dynamic tokens that are embedded inside ordinary words."""
+
+    retained = []
+    rejected = []
+    for candidate in candidates_document.get("candidates", []):
+        if candidate.get("class_name") != "dynamic":
+            retained.append(candidate)
+            continue
+        embedded, evidence = _dynamic_is_embedded_in_word(
+            image, candidate["bbox_xyxy"]
+        )
+        if not embedded:
+            retained.append(candidate)
+            continue
+        audit = dict(candidate)
+        audit["decision"] = "rejected"
+        audit["decision_reason"] = "dynamic_token_embedded_in_word"
+        audit["embedded_word_evidence"] = evidence
+        rejected.append(audit)
+    candidates_document["embedded_text_dynamic_candidates"] = rejected
+    candidates_document["embedded_text_dynamic_filter"] = {
+        "retained_count": len(retained),
+        "rejected_count": len(rejected),
+    }
+    candidates_document["candidates"] = retained
+    candidates_document["candidate_count"] = len(retained)
+    return candidates_document
+
+
+def _raw_s_is_dynamic_prefix(
+    candidate: dict[str, Any],
+    raw_letters: list[dict[str, Any]],
+) -> bool:
+    """Show raw S diagnostics only when an adjacent F makes sf plausible."""
+
+    x1, y1, x2, y2 = (float(value) for value in candidate["bbox_xyxy"])
+    height = max(1.0, y2 - y1)
+    cy = (y1 + y2) / 2.0
+    for other in raw_letters:
+        if other.get("class_name") != "dynamic_letter_f":
+            continue
+        ox1, oy1, ox2, oy2 = (float(value) for value in other["bbox_xyxy"])
+        horizontal_gap = ox1 - x2
+        other_cy = (oy1 + oy2) / 2.0
+        if -0.35 * height <= horizontal_gap <= 1.20 * height and abs(other_cy - cy) <= 0.75 * height:
+            return True
+    return False
+
+
+def reclassify_repeated_triplet_numbers(
+    candidates_document: dict[str, Any],
+    staffs: list[Any],
+    coordinate_scale: float | tuple[float, float] = 1.0,
+) -> dict[str, Any]:
+    """Reclassify regularly repeated fingering 3s as triplet numerals.
+
+    A single printed 3 remains fingering.  The rule requires at least three
+    detections on the same staff and baseline, separated by the wider and
+    regular spacing expected between successive beamed triplet groups.
+    """
+
+    scale_x, scale_y = _coordinate_scale_pair(coordinate_scale)
+    items = []
+    for candidate in candidates_document.get("candidates", []):
+        if candidate.get("class_name") != "fingering_3":
+            continue
+        x1, y1, x2, y2 = (float(value) for value in candidate["bbox_xyxy"])
+        cx = (x1 + x2) * scale_x / 2.0
+        cy = (y1 + y2) * scale_y / 2.0
+        staff_index = _nearest_staff_index(cx, cy, staffs)
+        if staff_index is None:
+            continue
+        items.append(
+            {
+                "candidate": candidate,
+                "cx": cx,
+                "cy": cy,
+                "staff_index": staff_index,
+                "unit": _staff_unit(staffs[staff_index]),
+            }
+        )
+
+    reclassified: list[dict[str, Any]] = []
+    used: set[int] = set()
+    for staff_index in sorted({item["staff_index"] for item in items}):
+        staff_items = sorted(
+            (item for item in items if item["staff_index"] == staff_index),
+            key=lambda item: item["cx"],
+        )
+        for start in range(len(staff_items)):
+            if id(staff_items[start]["candidate"]) in used:
+                continue
+            run = [staff_items[start]]
+            gaps: list[float] = []
+            for item in staff_items[start + 1 :]:
+                previous = run[-1]
+                unit = max(float(previous["unit"]), float(item["unit"]))
+                gap_units = (float(item["cx"]) - float(previous["cx"])) / unit
+                baseline_units = abs(float(item["cy"]) - float(previous["cy"])) / unit
+                if baseline_units > 0.75:
+                    continue
+                if not 3.5 <= gap_units <= 10.0:
+                    if gap_units > 10.0:
+                        break
+                    continue
+                prospective = gaps + [gap_units]
+                if len(prospective) >= 2 and max(prospective) / min(prospective) > 1.45:
+                    break
+                gaps = prospective
+                run.append(item)
+            if len(run) < 3:
+                continue
+            for item in run:
+                candidate = item["candidate"]
+                candidate["reclassified_from"] = "fingering_3"
+                candidate["class_name"] = "tuplet_3"
+                candidate["side"] = None
+                used.add(id(candidate))
+                reclassified.append(
+                    {
+                        "bbox_xyxy": list(candidate["bbox_xyxy"]),
+                        "confidence": float(candidate.get("confidence", 0.0)),
+                        "staff_index": int(staff_index),
+                    }
+                )
+    candidates_document["repeated_triplet_reclassification"] = {
+        "reclassified_count": len(reclassified),
+        "candidates": reclassified,
+    }
     return candidates_document
 
 
@@ -917,10 +1111,18 @@ def process_page_articulations(
     merged = merge_predictions(raw, nms_iou)
     hairpin_validation = None
     if validate_hairpins:
-        from omr.hairpin import detect_hairpins, validate_yolo_hairpins
+        from omr.hairpin import (
+            detect_adjacent_hairpins,
+            detect_hairpins,
+            merge_overlapping_hairpin_fragments,
+            validate_yolo_hairpins,
+        )
 
+        merged_hairpins, merged_hairpin_audit = merge_overlapping_hairpin_fragments(
+            merged["predictions"]
+        )
         validated_hairpins, rejected_hairpins = validate_yolo_hairpins(
-            page, merged["predictions"], minimum_model_confidence=confidence
+            page, merged_hairpins, minimum_model_confidence=confidence
         )
         geometry_hairpins: list[dict[str, Any]] = []
         rejected_geometry_hairpins: list[dict[str, Any]] = []
@@ -938,8 +1140,11 @@ def process_page_articulations(
             geometry_hairpins, rejected_geometry_hairpins = validate_yolo_hairpins(
                 page, geometry_predictions, minimum_model_confidence=0.0
             )
+        adjacent_hairpins = detect_adjacent_hairpins(
+            page, validated_hairpins + geometry_hairpins
+        )
         all_hairpins = sorted(
-            validated_hairpins + geometry_hairpins,
+            validated_hairpins + geometry_hairpins + adjacent_hairpins,
             key=lambda item: float(item.get("confidence", 0.0)),
             reverse=True,
         )
@@ -970,6 +1175,9 @@ def process_page_articulations(
             "accepted_count": len(deduplicated_hairpins),
             "model_accepted_count": len(validated_hairpins),
             "geometry_accepted_count": len(geometry_hairpins),
+            "adjacent_geometry_count": len(adjacent_hairpins),
+            "merged_fragment_count": len(merged_hairpin_audit),
+            "merged_fragments": merged_hairpin_audit,
             "rejected_count": len(rejected_hairpins) + len(rejected_geometry_hairpins),
             "rejected": rejected_hairpins + rejected_geometry_hairpins,
         }
@@ -998,6 +1206,8 @@ def process_page_articulations(
             gpu=not (str(device).lower() == "cpu" or device == -1),
         )
     combine_dynamic_letters(document, staffs, coordinate_scale)
+    suppress_embedded_dynamic_words(document, page)
+    reclassify_repeated_triplet_numbers(document, staffs, coordinate_scale)
     if filter_outside_music_region:
         filter_outside_music_region_candidates(
             document, staffs, coordinate_scale
@@ -1074,8 +1284,11 @@ def process_page_articulations(
             label += f" -> NG{candidate['matched_note_group_id']}"
         draw.text((candidate["bbox_xyxy"][0], max(0, candidate["bbox_xyxy"][1] - 14)), label, fill=color)
     if visualization_mode == "detector":
-        for candidate in document.get("dynamic_letter_detections", []):
+        raw_letters = document.get("dynamic_letter_detections", [])
+        for candidate in raw_letters:
             if candidate.get("class_name") != "dynamic_letter_s":
+                continue
+            if not _raw_s_is_dynamic_prefix(candidate, raw_letters):
                 continue
             if filter_outside_music_region and _music_region_rejection_reason(
                 candidate, staffs, coordinate_scale

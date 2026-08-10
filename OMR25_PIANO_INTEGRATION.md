@@ -73,6 +73,11 @@ YOLO 偵測到的 crescendo／diminuendo hairpin 必須通過楔形線條檢查�
 
 系統也加入 OpenCV 楔形偵測，補足 YOLO 完全漏掉 hairpin 的情況。兩個來源重疊時會去除重複候選。
 
+2026-08-10 的三首鋼琴譜檢查又加入兩項通用規則：切圖重疊造成的 hairpin
+片段會先合併成完整框，再重新依楔形判斷 crescendo／diminuendo；已確認
+hairpin 的左右鄰域也會做一次窄範圍幾何搜尋，用來補回緊接在旁邊、但 YOLO
+漏掉的反向 hairpin。這兩項規則不是針對單一頁面的固定座標。
+
 通過檢查後，hairpin 的左右端還必須連到兩個不同的音符群組，才會建立 MusicXML crescendo／diminuendo spanner。
 
 ### 5. Slur 與 tie
@@ -112,6 +117,15 @@ Tuplet 數字會嘗試尋找同一個 staff 上對應的音符範圍。
 
 不明確的 tuplet 仍會顯示在候選 JSON 中，但不會強行產生錯誤的 time-modification。
 
+外觀相同的數字 `3` 可能是指法，也可能是三連音。現在只有在同一 staff、
+同一高度出現至少三個、且各組間距規律並符合 beamed triplet 群組尺度時，才會把
+模型的 `fingering_3` 重新分類為 `tuplet_3`；零散的數字仍保留為指法。這修正了
+月光奏鳴曲伴奏中「每三個音一個 3」被全部當成指法的情況。
+
+力度字母的後處理也改為按水平閱讀順序組合，並檢查候選左右是否仍有同一單字的
+字母墨跡。因此 `sempre` 內誤抓出的 `mp`、`decresc.`／`senza`／`sordino`
+內的孤立 `s` 不會成為最終力度事件；原始偵測仍留在 audit JSON 供檢查。
+
 ## 三、本機測試方式
 
 ### 自動化測試
@@ -126,7 +140,7 @@ Tuplet 數字會嘗試尋找同一個 staff 上對應的音符範圍。
 
 目前結果：
 
-- articulation／piano：30 個測試通過。
+- articulation／piano：37 個測試通過。
 - slur／tie：14 個測試通過。
 
 ### 單張鋼琴譜模型整合測試
