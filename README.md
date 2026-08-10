@@ -64,6 +64,43 @@ string_dataset/output/beethoven1/
 
 鋼琴譜可以使用，但多聲部、跨譜表、密集和弦與重疊曲線仍是較困難的案例。
 
+### 匯入 BPSD JPEG 鋼琴頁
+
+`server/import_bpsd_piano_images.py` 會依圖片檔名最後的頁碼，自動把 BPSD
+頁面分組成 OMR25 所需的資料夾、PNG 與鋼琴 JSON。原始圖片不會被移動或刪除。
+
+先只檢查分組，不寫入檔案：
+
+```powershell
+Set-Location 'C:\OMR_work\25-omr'
+& 'C:\Users\minemine\miniconda3\envs\omr\python.exe' `
+  '.\server\import_bpsd_piano_images.py'
+```
+
+確認後正式匯入：
+
+```powershell
+& 'C:\Users\minemine\miniconda3\envs\omr\python.exe' `
+  '.\server\import_bpsd_piano_images.py' --apply
+```
+
+預設來源是：
+
+```text
+string_dataset/pdf_data/BPSD_score_scan_jpeg/
+```
+
+匯入後會產生：
+
+- 每首作品各自的資料夾、`<曲名>.json` 與編號 PNG。
+- `string_dataset/pdf_data/bpsd_import_manifest.json`：原始檔名與輸出頁面對照。
+- `string_dataset/pdf_data/piecesToRun.bpsd.json`：所有匯入作品名稱。
+
+產生的 JSON 暫時使用 4/4，並標記 `time_signature_status` 為
+`needs_manual_review`。執行 MusicXML 轉換前必須核對每首作品的 `tsChange`。
+一般重跑匯入程式會保留已存在的 JSON，避免覆蓋人工修改；只有明確加上
+`--overwrite` 才會重建圖片與設定。
+
 ## YOLOv9 架構
 
 這次遷移採用官方 YOLOv9-S，分成兩個模型訓練：

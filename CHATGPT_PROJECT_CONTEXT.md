@@ -390,6 +390,16 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-10: Added `server/import_bpsd_piano_images.py` to prepare the 243
+  BPSD JPEG pages for the legacy OMR25 input layout without changing source
+  files. The importer validates the final numeric page suffix, rejects gaps and
+  duplicates, groups the local pages into 32 pieces, creates real PNG files and
+  piano JSON configs, and records a source-to-output manifest plus a separate
+  piece list. A dry run and full local import both succeeded: 32 pieces, 243
+  pages, and zero missing outputs. Generated configs deliberately mark the
+  initial 4/4 `tsChange` as needing manual review; normal reruns preserve edited
+  configs unless `--overwrite` is explicitly requested. Generated pages/configs
+  remain ignored dataset artifacts and are not committed.
 - 2026-08-10: Switched the integrated piano runtime defaults to the user-selected
   `all_detected` policy. All displayed articulation candidates are now associated,
   including far/duplicate candidates; tuplets receive a nearest same-staff fallback;
