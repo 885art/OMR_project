@@ -316,6 +316,77 @@ def combine_dynamic_letters(
     return candidates_document
 
 
+def _music_region_rejection_reason(
+    candidate: dict[str, Any],
+    staffs: list[Any],
+    coordinate_scale: float | tuple[float, float] = 1.0,
+) -> str | None:
+    if not staffs:
+        return None
+    scale_x, scale_y = _coordinate_scale_pair(coordinate_scale)
+    x1, y1, x2, y2 = (float(value) for value in candidate["bbox_xyxy"])
+    cx = (x1 + x2) * scale_x / 2.0
+    cy = (y1 + y2) * scale_y / 2.0
+    staff_index = _nearest_staff_index(cx, cy, staffs)
+    if staff_index is None:
+        return "no_nearby_staff"
+    staff = staffs[staff_index]
+    unit = _staff_unit(staff)
+    semantic = str(candidate.get("class_name", ""))
+    wide_context = semantic in {
+        "dynamic",
+        "direction_text",
+        "pedal_start",
+        "pedal_stop",
+        "crescendo",
+        "diminuendo",
+    }
+    horizontal_margin = (3.0 if wide_context else 1.5) * unit
+    if (
+        cx < float(staff.left) - horizontal_margin
+        or cx > float(staff.right) + horizontal_margin
+    ):
+        return "outside_staff_horizontal_span"
+    maximum_vertical_units = 10.0 if wide_context else 5.5
+    if abs(cy - _staff_center(staff)) > maximum_vertical_units * unit:
+        return "too_far_from_staff"
+    return None
+
+
+def filter_outside_music_region_candidates(
+    candidates_document: dict[str, Any],
+    staffs: list[Any],
+    coordinate_scale: float | tuple[float, float] = 1.0,
+) -> dict[str, Any]:
+    """Suppress page furniture while retaining rejected candidates for audit."""
+
+    kept = []
+    rejected = []
+    for candidate in candidates_document.get("candidates", []):
+        reason = _music_region_rejection_reason(
+            candidate, staffs, coordinate_scale
+        )
+        if reason is None:
+            kept.append(candidate)
+            continue
+        audit = dict(candidate)
+        audit["music_region_decision"] = "rejected"
+        audit["music_region_reason"] = reason
+        rejected.append(audit)
+    candidates_document["detected_before_music_region_filter"] = len(
+        candidates_document.get("candidates", [])
+    )
+    candidates_document["outside_music_region_candidates"] = rejected
+    candidates_document["music_region_filter"] = {
+        "enabled": True,
+        "retained_count": len(kept),
+        "rejected_count": len(rejected),
+    }
+    candidates_document["candidates"] = kept
+    candidates_document["candidate_count"] = len(kept)
+    return candidates_document
+
+
 def associate_candidates(
     candidates_document: dict[str, Any],
     note_groups: list[Any],
@@ -808,6 +879,7 @@ def process_page_articulations(
     detect_geometry_hairpins: bool = True,
     acceptance_policy: str = "conservative",
     visualization_mode: str = "association",
+    filter_outside_music_region: bool = False,
 ) -> dict[str, Any]:
     """Detect, associate, persist, and visualize articulations for one page."""
 
@@ -926,6 +998,12 @@ def process_page_articulations(
             gpu=not (str(device).lower() == "cpu" or device == -1),
         )
     combine_dynamic_letters(document, staffs, coordinate_scale)
+    if filter_outside_music_region:
+        filter_outside_music_region_candidates(
+            document, staffs, coordinate_scale
+        )
+    else:
+        document["music_region_filter"] = {"enabled": False}
     thresholds = dict(DEFAULT_CLASS_CONFIDENCE)
     if class_confidence:
         thresholds.update(
@@ -995,5 +1073,21 @@ def process_page_articulations(
         if matched:
             label += f" -> NG{candidate['matched_note_group_id']}"
         draw.text((candidate["bbox_xyxy"][0], max(0, candidate["bbox_xyxy"][1] - 14)), label, fill=color)
+    if visualization_mode == "detector":
+        for candidate in document.get("dynamic_letter_detections", []):
+            if candidate.get("class_name") != "dynamic_letter_s":
+                continue
+            if filter_outside_music_region and _music_region_rejection_reason(
+                candidate, staffs, coordinate_scale
+            ) is not None:
+                continue
+            bbox = candidate["bbox_xyxy"]
+            color = "#e729d3"
+            draw.rectangle(bbox, outline=color, width=2)
+            draw.text(
+                (bbox[0], max(0, bbox[1] - 14)),
+                f"raw_s {candidate['confidence']:.2f}",
+                fill=color,
+            )
     canvas.save(destination / f"{image_id}.articulations.jpg", quality=92)
     return document

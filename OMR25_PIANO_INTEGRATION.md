@@ -28,6 +28,12 @@
 
 Piano50 使用 0.05 的低原始門檻進行偵測，先保留可能的小符號，再由各類別自己的門檻篩選。
 
+文字方向 OCR 會保留擴張框作為辨識稽核資料，但輸出的 `direction_text`
+改用實際墨跡緊框，避免 `cresc.`／`decresc.` 的過大搜尋框影響水平位置。
+`filter_outside_music_region` 預設開啟，譜外頁碼、標題與出版資訊候選會移至
+`outside_music_region_candidates`，不會直接進入 MusicXML；原始 `dynamicS`
+候選仍保存在 `dynamic_letter_detections`，批次檢查圖以紫色 `raw_s` 顯示。
+
 例如：
 
 - `staccato`：0.45

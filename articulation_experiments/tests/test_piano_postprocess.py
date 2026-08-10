@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw
 from omr.curve_postprocess import collapse_curve_duplicates, merge_curve_fragments
 from omr.hairpin import validate_yolo_hairpins
 from omr.parentheses import suppress_parentheses
+from omr.articulation import filter_outside_music_region_candidates
 from omr.text_directions import normalize_direction_word, recognize_pedal_word_candidates
 from omr.tuplet import associate_tuplet_candidates
 
@@ -129,6 +130,54 @@ class PianoPostprocessTest(unittest.TestCase):
         self.assertEqual(directions[0]["direction_type"], "crescendo")
         self.assertTrue(candidates[0]["ocr_reclassified"])
         self.assertEqual(audits[0]["decision"], "recognized")
+
+    def test_direction_output_uses_tight_ink_box_not_expanded_ocr_crop(self):
+        class FakeReader:
+            def recognize(self, *_args, **_kwargs):
+                return [([0, 0, 1, 1], "cresc.", 0.95)]
+
+        image = Image.new("RGB", (300, 100), "white")
+        draw = ImageDraw.Draw(image)
+        draw.text((55, 35), "cresc.", fill="black")
+        candidates = [
+            {
+                "class_name": "pedal_stop",
+                "bbox_xyxy": [52, 31, 78, 48],
+                "confidence": 0.70,
+            }
+        ]
+        with patch("omr.text_directions._reader", return_value=FakeReader()):
+            directions, audits = recognize_pedal_word_candidates(
+                image, candidates, model_dir="unused", gpu=False
+            )
+        tight = directions[0]["bbox_xyxy"]
+        expanded = audits[0]["expanded_bbox_xyxy"]
+        self.assertGreater(tight[0], expanded[0])
+        self.assertLess(tight[2], expanded[2])
+        self.assertEqual(directions[0]["bbox_xyxy"], audits[0]["tight_bbox_xyxy"])
+
+    def test_music_region_filter_removes_page_furniture_and_keeps_staff_symbol(self):
+        document = {
+            "candidates": [
+                {
+                    "class_name": "fermata",
+                    "bbox_xyxy": [20, 5, 35, 18],
+                    "confidence": 0.98,
+                },
+                {
+                    "class_name": "staccato",
+                    "bbox_xyxy": [120, 72, 126, 78],
+                    "confidence": 0.92,
+                },
+            ]
+        }
+        filter_outside_music_region_candidates(document, [FakeStaff()])
+        self.assertEqual([item["class_name"] for item in document["candidates"]], ["staccato"])
+        self.assertEqual(document["music_region_filter"]["rejected_count"], 1)
+        self.assertEqual(
+            document["outside_music_region_candidates"][0]["music_region_reason"],
+            "too_far_from_staff",
+        )
 
     def test_unresolved_word_shaped_pedal_is_suppressed(self):
         class FakeReader:

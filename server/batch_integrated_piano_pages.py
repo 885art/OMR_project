@@ -50,6 +50,8 @@ def write_gallery(output_dir: Path, pages: list[dict]) -> Path:
 <section>
   <h2>{stem}</h2>
   <p>{page['staff_count']} staffs · {page['symbol_candidate_count']} symbols ·
+     {page.get('outside_music_region_rejected_count', 0)} outside filtered ·
+     {page.get('raw_dynamic_s_count', 0)} raw s ·
      {page['curve_candidate_count']} curves ·
      <a href="{symbol_json}">symbol JSON</a> ·
      <a href="{curve_json}">curve JSON</a></p>
@@ -85,6 +87,7 @@ Piano50 符號模型與 curve-v2 模型批次跑完後，集中顯示圖片與 J
   <span style="color:#ff7f00"><i class="swatch"></i>fingering／其他符號</span>
   <span style="color:#2ca02c"><i class="swatch"></i>crescendo</span>
   <span style="color:#17becf"><i class="swatch"></i>diminuendo</span>
+  <span style="color:#e729d3"><i class="swatch"></i>raw s（合併前候選）</span>
   <span style="color:#00b400"><i class="swatch"></i>curve（尚未分 slur/tie）</span>
 </div>
 {''.join(cards)}</body></html>"""
@@ -119,6 +122,13 @@ def main() -> int:
         "page_count": len(summaries),
         "symbol_candidate_count": sum(
             page["symbol_candidate_count"] for page in summaries
+        ),
+        "outside_music_region_rejected_count": sum(
+            page.get("outside_music_region_rejected_count", 0)
+            for page in summaries
+        ),
+        "raw_dynamic_s_count": sum(
+            page.get("raw_dynamic_s_count", 0) for page in summaries
         ),
         "curve_candidate_count": sum(
             page["curve_candidate_count"] for page in summaries

@@ -392,6 +392,16 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-10: Tightened OCR direction-word output boxes independently from the
+  expanded recognition crop, added a staff-relative page-furniture filter with
+  an audit trail, and exposed raw `dynamicS` detections in purple for detector
+  review. The same ten-page BPSD batch retained 979 displayed symbol candidates,
+  moved 186 pre-threshold outside-region candidates into audit records, exposed
+  87 raw `s` detections, and retained all 448 curve candidates. Across the base
+  conversion plus parenthesis augmentation, the effective tiled training data
+  contains 1,153 `dynamicS` instances versus 16,927 `dynamicF` instances. The
+  imbalance and domain shift make target-domain fine-tuning on BPSD dynamic
+  tokens preferable to training every unrelated DeepScores class.
 - 2026-08-10: Clarified and corrected detector-only batch visualization. The
   batch page is explicitly described as a wrapper around the existing Piano50
   and curve-v2 inference path, not a separate model or training tool. Symbol

@@ -106,6 +106,7 @@ def run_page(source: Path, output: Path, device: str = "0") -> dict:
         detect_geometry_hairpins=True,
         acceptance_policy="all_detected",
         visualization_mode="detector",
+        filter_outside_music_region=True,
     )
     confirmed_hairpins = [
         candidate
@@ -140,6 +141,13 @@ def run_page(source: Path, output: Path, device: str = "0") -> dict:
         "source": str(source),
         "staff_count": len(staffs),
         "symbol_candidate_count": symbol_document["candidate_count"],
+        "outside_music_region_rejected_count": symbol_document.get(
+            "music_region_filter", {}
+        ).get("rejected_count", 0),
+        "raw_dynamic_s_count": sum(
+            candidate.get("class_name") == "dynamic_letter_s"
+            for candidate in symbol_document.get("dynamic_letter_detections", [])
+        ),
         "recognized_text_direction_count": symbol_document.get(
             "text_direction_ocr", {}
         ).get("recognized_direction_count", 0),

@@ -68,6 +68,7 @@
     "easyocr_model_dir": "C:/OMR_work/weights/easyocr",
     "validate_hairpins": true,
     "detect_geometry_hairpins": true,
+    "filter_outside_music_region": true,
     "acceptance_policy": "all_detected",
     "class_confidence": {
       "accent": 0.55,

@@ -28,6 +28,8 @@ class BatchPianoPagesTest(unittest.TestCase):
                         "source": str(source),
                         "staff_count": 10,
                         "symbol_candidate_count": 20,
+                        "outside_music_region_rejected_count": 3,
+                        "raw_dynamic_s_count": 2,
                         "curve_candidate_count": 5,
                     }
                 ],
@@ -38,6 +40,9 @@ class BatchPianoPagesTest(unittest.TestCase):
             self.assertIn("沿用既有推論程式", text)
             self.assertIn("顏色圖例", text)
             self.assertIn("curve（尚未分 slur/tie）", text)
+            self.assertIn("raw s（合併前候選）", text)
+            self.assertIn("3 outside filtered", text)
+            self.assertIn("2 raw s", text)
 
 
 if __name__ == "__main__":

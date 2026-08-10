@@ -92,6 +92,91 @@ def _expanded_crop(
     return Image.fromarray(array), expanded
 
 
+def _tight_word_bbox(
+    image: Image.Image,
+    source_bbox: list[float],
+    expanded_bbox: list[float],
+) -> list[float]:
+    """Return a compact ink box while retaining the expanded crop for OCR."""
+
+    sx1, sy1, sx2, sy2 = (float(value) for value in source_bbox)
+    ex1, ey1, ex2, ey2 = (float(value) for value in expanded_bbox)
+    source_height = max(8.0, sy2 - sy1)
+    band_y1 = max(ey1, sy1 - 0.40 * source_height)
+    band_y2 = min(ey2, sy2 + 0.40 * source_height)
+    left = max(0, int(np.floor(ex1)))
+    top = max(0, int(np.floor(band_y1)))
+    right = min(image.width, int(np.ceil(ex2)))
+    bottom = min(image.height, int(np.ceil(band_y2)))
+    if right <= left or bottom <= top:
+        return [sx1, sy1, sx2, sy2]
+
+    gray = np.asarray(image.crop((left, top, right, bottom)).convert("L"))
+    ink = cv2.threshold(
+        gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )[1]
+    count, _, stats, centroids = cv2.connectedComponentsWithStats(ink, 8)
+    components: list[dict[str, float]] = []
+    minimum_area = max(2.0, 0.08 * source_height)
+    source_center_y = (sy1 + sy2) / 2.0
+    for index in range(1, count):
+        x, y, width, height, area = (float(value) for value in stats[index])
+        center_y = top + float(centroids[index][1])
+        if area < minimum_area or abs(center_y - source_center_y) > source_height:
+            continue
+        components.append(
+            {
+                "x1": left + x,
+                "y1": top + y,
+                "x2": left + x + width,
+                "y2": top + y + height,
+            }
+        )
+    if not components:
+        return [sx1, sy1, sx2, sy2]
+
+    seeds = [
+        item
+        for item in components
+        if item["x2"] >= sx1 and item["x1"] <= sx2
+    ]
+    if not seeds:
+        source_center_x = (sx1 + sx2) / 2.0
+        seeds = [
+            min(
+                components,
+                key=lambda item: abs(
+                    (item["x1"] + item["x2"]) / 2.0 - source_center_x
+                ),
+            )
+        ]
+    selected = list(seeds)
+    remaining = [item for item in components if item not in selected]
+    maximum_gap = max(3.0, 0.90 * source_height)
+    changed = True
+    while changed:
+        changed = False
+        current_left = min(item["x1"] for item in selected)
+        current_right = max(item["x2"] for item in selected)
+        for item in list(remaining):
+            horizontal_gap = max(
+                0.0, current_left - item["x2"], item["x1"] - current_right
+            )
+            if horizontal_gap <= maximum_gap:
+                selected.append(item)
+                remaining.remove(item)
+                changed = True
+
+    padding_x = 0.15 * source_height
+    padding_y = 0.10 * source_height
+    return [
+        max(ex1, min(item["x1"] for item in selected) - padding_x),
+        max(ey1, min(item["y1"] for item in selected) - padding_y),
+        min(ex2, max(item["x2"] for item in selected) + padding_x),
+        min(ey2, max(item["y2"] for item in selected) + padding_y),
+    ]
+
+
 def recognize_pedal_word_candidates(
     image: Image.Image,
     candidates: list[dict[str, Any]],
@@ -123,6 +208,9 @@ def recognize_pedal_word_candidates(
         if not requires_ocr:
             continue
         crop, expanded_bbox = _expanded_crop(image, candidate["bbox_xyxy"])
+        tight_bbox = _tight_word_bbox(
+            image, candidate["bbox_xyxy"], expanded_bbox
+        )
         gray = np.asarray(crop)
         results = reader.recognize(
             gray,
@@ -149,6 +237,8 @@ def recognize_pedal_word_candidates(
             "bbox_aspect_ratio": round(aspect_ratio, 6),
             "word_like_geometry": word_like,
             "expanded_bbox_xyxy": expanded_bbox,
+            "tight_bbox_xyxy": tight_bbox,
+            "source_bbox_xyxy": list(candidate["bbox_xyxy"]),
             "ocr_results": [
                 {"text": str(text), "confidence": float(confidence)}
                 for _, text, confidence in results
@@ -185,7 +275,7 @@ def recognize_pedal_word_candidates(
                 "class_name": "direction_text",
                 "class_id": -2,
                 "side": None,
-                "bbox_xyxy": expanded_bbox,
+                "bbox_xyxy": tight_bbox,
                 # EasyOCR's raw confidence is often pessimistic on engraved
                 # italic text.  The constrained dictionary match and the
                 # detector proposal are independent evidence, so combine all

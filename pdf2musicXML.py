@@ -3785,6 +3785,9 @@ if __name__ == '__main__':
                     acceptance_policy=articulation_config.get(
                         'acceptance_policy', 'all_detected'
                     ),
+                    filter_outside_music_region=bool(
+                        articulation_config.get('filter_outside_music_region', True)
+                    ),
                     device=device,
                 )
                 print(
