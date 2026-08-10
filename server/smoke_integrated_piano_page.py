@@ -108,6 +108,7 @@ def main() -> int:
         easyocr_model_dir=REPO_ROOT.parent / "weights/easyocr",
         validate_hairpins=True,
         detect_geometry_hairpins=True,
+        acceptance_policy="all_detected",
     )
     confirmed_hairpins = [
         candidate
@@ -133,6 +134,7 @@ def main() -> int:
         edge_policy="shift",
         batch=2,
         postprocess_mode="full_bbox",
+        acceptance_policy="all_detected",
         confirmed_hairpins=confirmed_hairpins,
         visualize=True,
     )

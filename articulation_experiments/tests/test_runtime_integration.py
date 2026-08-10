@@ -184,6 +184,40 @@ class RuntimeIntegrationTest(unittest.TestCase):
         self.assertEqual(len(group.articulations), 1)
         self.assertAlmostEqual(group.articulations[0]["confidence"], 0.95)
 
+    def test_all_detected_keeps_far_and_duplicate_articulations(self):
+        group = FakeGroup((90, 90, 110, 110))
+        document = {
+            "candidates": [
+                candidate("staccato", "above", (600, 20, 606, 26), 0.55),
+                candidate("staccato", "above", (602, 20, 608, 26), 0.50),
+            ]
+        }
+        associate_candidates(
+            document,
+            [group],
+            acceptance_policy="all_detected",
+        )
+        self.assertEqual(document["association"]["matched_count"], 2)
+        self.assertEqual(len(group.articulations), 2)
+        self.assertTrue(
+            all(item["association_status"] == "matched" for item in document["candidates"])
+        )
+
+    def test_all_detected_keeps_low_confidence_tuplet_with_nearest_span(self):
+        groups = [FakeGroup((x, 95, x + 10, 105)) for x in (90, 120, 150)]
+        staff = FakeStaff((80, 90, 100, 110, 120))
+        document = {
+            "candidates": [candidate("tuplet_3", None, (700, 65, 710, 78), 0.10)]
+        }
+        result = associate_tuplet_candidates(
+            document,
+            groups,
+            [staff],
+            acceptance_policy="all_detected",
+        )
+        self.assertEqual(result["xml_eligible_count"], 1)
+        self.assertEqual(result["relations"][0]["note_group_ids"], [0, 1, 2])
+
     def test_combines_dynamic_letters_and_rejects_invalid_fragments(self):
         staff = FakeStaff((80, 90, 100, 110, 120))
         document = {

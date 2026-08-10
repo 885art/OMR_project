@@ -76,6 +76,7 @@ def associate_tuplet_candidates(
     coordinate_scale: float | tuple[float, float] = 1.0,
     xml_confidence: float = 0.55,
     search_width_units_per_note: float = 2.4,
+    acceptance_policy: str = "conservative",
 ) -> dict[str, Any]:
     """Associate detected tuplet numerals with a conservative note-group span.
 
@@ -84,6 +85,10 @@ def associate_tuplet_candidates(
     selected on one staff.  Ambiguous cases remain visible as review records.
     """
 
+    policy = str(acceptance_policy).lower()
+    if policy not in {"conservative", "all_detected"}:
+        raise ValueError(f"Unsupported tuplet acceptance policy: {acceptance_policy}")
+    permissive = policy == "all_detected"
     if isinstance(coordinate_scale, (tuple, list)):
         scale_x, scale_y = float(coordinate_scale[0]), float(coordinate_scale[1])
     else:
@@ -169,6 +174,15 @@ def associate_tuplet_candidates(
             ),
             key=lambda group: group["cx"],
         )
+        if permissive and len(pool) < actual:
+            pool = sorted(
+                (
+                    group
+                    for group in groups
+                    if group["staff_index"] == staff_index
+                ),
+                key=lambda group: group["cx"],
+            )
         if len(pool) < actual:
             candidate["association_reason"] = "not_enough_note_groups"
             continue
@@ -182,13 +196,17 @@ def associate_tuplet_candidates(
             )
 
         normal = _normal_notes(actual)
+        if permissive and normal is None:
+            normal = {2: 3, 4: 3, 8: 6}.get(actual)
         relation_id = f"tuplet-{len(relations) + 1}"
         confidence = float(candidate.get("confidence", 0.0))
-        xml_eligible = normal is not None and confidence >= xml_confidence
+        xml_eligible = normal is not None and (
+            permissive or confidence >= xml_confidence
+        )
         reason = None
         if normal is None:
             reason = "rhythmic_ratio_ambiguous"
-        elif confidence < xml_confidence:
+        elif not permissive and confidence < xml_confidence:
             reason = "confidence_below_xml_threshold"
         group_ids = [int(group["index"]) for group in pool]
         relation = {
@@ -233,6 +251,7 @@ def associate_tuplet_candidates(
             )
 
     result = {
+        "acceptance_policy": policy,
         "candidate_count": len(numerals),
         "bracket_count": len(brackets),
         "relation_count": len(relations),

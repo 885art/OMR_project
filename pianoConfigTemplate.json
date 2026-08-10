@@ -33,6 +33,7 @@
     "easyocr_model_dir": "C:/OMR_work/weights/easyocr",
     "validate_hairpins": true,
     "detect_geometry_hairpins": true,
+    "acceptance_policy": "all_detected",
     "tuplet_xml_confidence": 0.55
   },
   "slur_tie": {
@@ -50,6 +51,7 @@
     "edge_policy": "shift",
     "batch": 2,
     "postprocess_mode": "full_bbox",
+    "acceptance_policy": "all_detected",
     "max_tie_span_units": 6.5,
     "xml_confidence": 0.45,
     "visualize_pages": [1]

@@ -115,12 +115,17 @@ environment variables and Linux paths, never hard-code these values.
 - Hairpins use low-threshold YOLO candidates plus wedge geometry validation.
 - Curve fragments can be merged; obvious multi-staff-line and tiny/flat false
   boxes are rejected.
-- A review output assigns `accept`, `review`, or `reject` instead of treating the
-  displayed confidence as a correctness probability.
-- Tuplet relations can be attached conservatively to note groups and written to
-  MusicXML when the ratio and span are unambiguous.
-- Slurs and ties are written only after both endpoints are resolved. A tie also
-  requires structurally compatible adjacent same-pitch notes.
+- Detector confidence remains a candidate score, not a correctness probability.
+- At the user's direction after visual review, the default runtime policy is now
+  `all_detected`: displayed articulation, tuplet, and curve candidates are kept
+  and assigned to the lowest-cost available note group or ordered endpoint pair.
+- A tie still requires structurally compatible adjacent same-pitch single notes.
+  Ambiguous chord ties are preserved as slurs so that the curve is not discarded
+  and an invalid pitch-specific tie is not created.
+- `conservative` remains available as an explicit `acceptance_policy` setting.
+- Candidate retention and MusicXML insertion are distinct: if legacy note parsing
+  does not create a music21 object for an associated note group, the record remains
+  in JSON/debug output but has no MusicXML object to attach to.
 
 ### Representative local review output
 
@@ -226,9 +231,12 @@ Preferred design:
 
 1. detect one visual class, `curve`;
 2. resolve the two note endpoints;
-3. classify structurally: adjacent same-pitch notes -> tie, otherwise a complete
-   valid curve -> slur;
-4. write MusicXML only for complete endpoint pairs.
+3. classify structurally: adjacent same-pitch single notes -> tie, otherwise a
+   curve -> slur;
+4. under the current user-selected `all_detected` runtime policy, retain every
+   displayed candidate and use the lowest-cost ordered endpoint pair when the
+   normal endpoint gate fails; write MusicXML when both resolved note groups
+   produced attachable music21 objects.
 
 If BPSD supplies masks or polylines, prefer instance segmentation or a curve
 tracing model. If BPSD supplies bounding boxes only, start with a one-class
@@ -236,8 +244,9 @@ YOLOv9 curve baseline. Use curve-aware crops that retain whole curves; do not
 train clipped fragments as complete objects. Include both small-detail and
 larger staff-system context.
 
-The OpenCV result may raise confidence when it agrees with YOLO, but OpenCV-only
-candidates remain review-only unless structural endpoint checks pass.
+The OpenCV result may raise confidence when it agrees with YOLO. Historical
+comparison galleries may still contain review-only candidates; the integrated
+runtime now follows the explicit `acceptance_policy` described above.
 
 ### C. Text directions
 
@@ -315,14 +324,14 @@ for private server values.
   4,474 tiles, 52,269 tile instances, 0 clipped labels, and 0 unassigned source
   annotations. YOLOv9-E RTX 3090 preflight passed. A separate 1-epoch 1280,
   batch-4 smoke completed training, validation, and checkpoint writing.
-- On 2026-08-10, 24 articulation/piano tests and 12 slur/tie tests passed after
-  the OMR25 integration changes.
+- On 2026-08-10, 26 articulation/piano tests and 14 slur/tie tests passed after
+  the OMR25 integration and all-detected policy changes.
 - A real BPSD page completed the full legacy `pdf2musicXML.py` pipeline in
-  two-staff piano mode. It produced a braced two-part MusicXML with 450 notes,
-  40 directions, 45 staccato marks, 15 fingerings, four tuplet tags, and seven
-  accepted slurs. The run also exposed a 7/8 reconstructed bar in a configured
-  4/4 passage, so it is an executable integration smoke, not a piano-accuracy
-  result.
+  two-staff piano mode. After enabling `all_detected`, it produced a braced
+  two-part MusicXML with 451 notes, 30 directions, 51 staccato marks, 17
+  fingerings, four tuplet tags, and 60 slurs. The run also exposed a 7/8
+  reconstructed bar in a configured 4/4 passage, so it is an executable
+  integration smoke and retention check, not a piano-accuracy result.
 - The local environment additionally required `onnxruntime-gpu==1.18.0`,
   `scikit-learn==1.7.0`, and `pdf2image==1.17.0` for the legacy main program.
   ONNX Runtime could not load its CUDA provider DLL and fell back to CPU; both
@@ -381,6 +390,18 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-10: Switched the integrated piano runtime defaults to the user-selected
+  `all_detected` policy. All displayed articulation candidates are now associated,
+  including far/duplicate candidates; tuplets receive a nearest same-staff fallback;
+  and curve candidates bypass confidence/distance/duplicate relation suppression,
+  with a nearest ordered endpoint fallback. Ambiguous chord ties are exported as
+  slurs rather than discarded or emitted as invalid ties. On the same BPSD smoke
+  page, articulation association changed from 85/105 to 105/105 and curve relations
+  changed to 68/68 XML-eligible. The actual MusicXML contains 51 staccatos, 17
+  fingerings, 27 dynamics, three text directions, and 60 slurs; seven articulation
+  records and eight curve relations remain only in JSON/debug output because legacy
+  note parsing did not create attachable music21 note objects. This is retention
+  behavior, not a ground-truth accuracy result.
 - 2026-08-10: Integrated the Piano50 and curve-v2 checkpoints into OMR25's
   preferred runtime path. Added constrained pedal/text arbitration, direct
   geometry hairpin fallback, full-box curve duplicate collapse, staff-crossing

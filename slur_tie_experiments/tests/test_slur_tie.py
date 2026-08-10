@@ -166,6 +166,34 @@ class SlurTieTests(unittest.TestCase):
             second["classification_reason"], "duplicate_note_endpoint_relation"
         )
 
+    def test_all_detected_keeps_low_confidence_duplicate_relations(self):
+        groups = [FakeGroup(100, 5), FakeGroup(140, 6)]
+        first = {**candidate(), "confidence": 0.15}
+        second = {**candidate(), "candidate_id": 1, "confidence": 0.10}
+        result = associate_curve_candidates(
+            [first, second],
+            groups,
+            [FakeStaff()],
+            "all-detected",
+            acceptance_policy="all_detected",
+        )
+        self.assertEqual(result["relation_count"], 2)
+        self.assertEqual(result["xml_eligible_count"], 2)
+        self.assertTrue(all(item["xml_eligible"] for item in result["candidates"]))
+
+    def test_all_detected_preserves_unknown_pitch_curve_as_slur(self):
+        groups = [FakeGroup(100, None), FakeGroup(140, None)]
+        result = associate_curve_candidates(
+            [candidate()],
+            groups,
+            [FakeStaff()],
+            "unknown-all",
+            acceptance_policy="all_detected",
+        )
+        relation = result["relations"][0]
+        self.assertEqual(relation["predicted_type"], "slur")
+        self.assertTrue(relation["xml_eligible"])
+
     def test_musicxml_contains_numbered_slur_start_and_stop(self):
         start_group = FakeGroup(100, 5)
         stop_group = FakeGroup(140, 6)

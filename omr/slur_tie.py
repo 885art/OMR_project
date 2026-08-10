@@ -403,9 +403,14 @@ def associate_curve_candidates(
     coordinate_scale: float | tuple[float, float] = 1.0,
     max_tie_span_units: float = DEFAULT_MAX_TIE_SPAN_UNITS,
     xml_confidence: float = DEFAULT_XML_CONFIDENCE,
+    acceptance_policy: str = "conservative",
 ) -> dict[str, Any]:
     """Associate curve endpoints to note groups on the same staff."""
 
+    policy = str(acceptance_policy).lower()
+    if policy not in {"conservative", "all_detected"}:
+        raise ValueError(f"Unsupported curve acceptance policy: {acceptance_policy}")
+    permissive = policy == "all_detected"
     scale_x, scale_y = _scale_pair(coordinate_scale)
     staff_records = _staff_records(staffs, scale_x, scale_y)
     for group in note_groups:
@@ -440,7 +445,7 @@ def associate_curve_candidates(
             x0, y0, x1, y1 = group["bbox"]
             dy_pixels = max(0.0, y0 - ey, ey - y1)
             dy = dy_pixels / unit
-            if dx > 2.5 or dy > 5.5:
+            if not permissive and (dx > 2.5 or dy > 5.5):
                 continue
             cost = 1.5 * dx + 0.35 * dy
             scored.append((cost, group))
@@ -449,6 +454,47 @@ def associate_curve_candidates(
         cost, group = min(scored, key=lambda item: item[0])
         return group, 1.0 / (1.0 + cost)
 
+    def best_ordered_pair(
+        candidate: dict[str, Any], staff_index: int
+    ) -> tuple[
+        Optional[dict[str, Any]],
+        Optional[float],
+        Optional[dict[str, Any]],
+        Optional[float],
+    ]:
+        pool = [group for group in groups if group["staff_index"] == staff_index]
+        if len(pool) < 2:
+            pool = groups
+        if len(pool) < 2:
+            return None, None, None, None
+        unit = staff_records[staff_index]["unit"]
+
+        def endpoint_cost(endpoint: list[float], group: dict[str, Any]) -> float:
+            ex, ey = float(endpoint[0]), float(endpoint[1])
+            gx, _ = group["center"]
+            x0, y0, x1, y1 = group["bbox"]
+            dx = abs(ex - gx) / unit
+            dy = max(0.0, y0 - ey, ey - y1) / unit
+            staff_penalty = 0.0 if group["staff_index"] == staff_index else 2.0
+            return 1.5 * dx + 0.35 * dy + staff_penalty
+
+        pairs = [
+            (left, right)
+            for left in pool
+            for right in pool
+            if left["center"][0] < right["center"][0]
+        ]
+        if not pairs:
+            return None, None, None, None
+        left, right = min(
+            pairs,
+            key=lambda pair: endpoint_cost(candidate["left_endpoint"], pair[0])
+            + endpoint_cost(candidate["right_endpoint"], pair[1]),
+        )
+        left_cost = endpoint_cost(candidate["left_endpoint"], left)
+        right_cost = endpoint_cost(candidate["right_endpoint"], right)
+        return left, 1.0 / (1.0 + left_cost), right, 1.0 / (1.0 + right_cost)
+
     relations = []
     accepted_relation_keys: set[tuple[int, int, str, str]] = set()
     for candidate in candidates:
@@ -456,6 +502,15 @@ def associate_curve_candidates(
         staff_index = int(candidate["staff_index"])
         left, left_score = match_endpoint(candidate["left_endpoint"], staff_index)
         right, right_score = match_endpoint(candidate["right_endpoint"], staff_index)
+        if permissive and (
+            left is None
+            or right is None
+            or left["index"] == right["index"]
+            or left["center"][0] >= right["center"][0]
+        ):
+            left, left_score, right, right_score = best_ordered_pair(
+                candidate, staff_index
+            )
         if left is None or right is None:
             candidate["classification_reason"] = "one_or_both_endpoints_unmatched"
             continue
@@ -484,6 +539,16 @@ def associate_curve_candidates(
         else:
             predicted_type = "slur"
             reason = "endpoint_pitch_sets_differ"
+        if permissive and predicted_type == "unknown_curve":
+            predicted_type = "slur"
+            reason = "unknown_pitch_preserved_as_slur"
+        if (
+            permissive
+            and predicted_type == "tie"
+            and not (len(left_pitches) == 1 and left_pitches == right_pitches)
+        ):
+            predicted_type = "slur"
+            reason = "ambiguous_chord_tie_preserved_as_slur"
         association_score = min(float(left_score), float(right_score))
         classification_confidence = float(candidate["confidence"]) * association_score
         relation_key = (
@@ -492,7 +557,7 @@ def associate_curve_candidates(
             predicted_type,
             str(candidate["curve_direction"]),
         )
-        if relation_key in accepted_relation_keys:
+        if not permissive and relation_key in accepted_relation_keys:
             candidate["association_status"] = "rejected"
             candidate["classification_reason"] = "duplicate_note_endpoint_relation"
             candidate["left_note_group_id"] = int(left["index"])
@@ -500,7 +565,8 @@ def associate_curve_candidates(
             candidate["xml_eligible"] = False
             candidate["xml_exclusion_reason"] = "duplicate_note_endpoint_relation"
             continue
-        accepted_relation_keys.add(relation_key)
+        if not permissive:
+            accepted_relation_keys.add(relation_key)
         relation_number = len(relations) + 1
         relation_id = f"{image_id}:curve:{relation_number}"
         structurally_eligible = predicted_type == "slur" or (
@@ -508,10 +574,12 @@ def associate_curve_candidates(
             and len(left_pitches) == 1
             and left_pitches == right_pitches
         )
-        xml_eligible = structurally_eligible and classification_confidence >= xml_confidence
+        xml_eligible = structurally_eligible and (
+            permissive or classification_confidence >= xml_confidence
+        )
         if not structurally_eligible:
             xml_exclusion_reason = "unknown_or_ambiguous_chord_tie"
-        elif classification_confidence < xml_confidence:
+        elif not permissive and classification_confidence < xml_confidence:
             xml_exclusion_reason = "confidence_below_xml_threshold"
         else:
             xml_exclusion_reason = None
@@ -564,6 +632,7 @@ def associate_curve_candidates(
     return {
         "schema_version": 1,
         "image_id": image_id,
+        "acceptance_policy": policy,
         "xml_confidence_threshold": float(xml_confidence),
         "candidate_count": len(candidates),
         "matched_count": sum(item["association_status"] == "matched" for item in candidates),
@@ -736,6 +805,7 @@ def process_page_slurs_ties(
     batch: int = 2,
     confirmed_hairpins: list[dict[str, Any]] | None = None,
     postprocess_mode: str = "full_bbox",
+    acceptance_policy: str = "conservative",
 ) -> dict[str, Any]:
     source = Path(image_path).expanduser().resolve()
     image = cv2.imread(str(source), cv2.IMREAD_COLOR)
@@ -780,6 +850,7 @@ def process_page_slurs_ties(
         coordinate_scale,
         max_tie_span_units,
         xml_confidence,
+        acceptance_policy,
     )
     document["source_path"] = str(source)
     document["source_width"] = image.shape[1]

@@ -104,14 +104,15 @@ Curve v2 最佳結果（epoch 29）：
 4. 移除重疊的 pedal 候選。
 5. 只把 `cresc.` 文字寫進 MusicXML。
 
-其他安全規則：
+目前輸出策略：
 
 - hairpin 必須符合楔形幾何。
-- curve 必須找到左右端音符。
-- 同一對端點的重複 curve 只保留一個。
+- 人工檢查後，決定把畫面上原本灰色的 articulation 與 curve 候選全部保留。
+- articulation 會配到代價最低的音符群組，不再因距離或重複類別而排除。
+- curve 會尋找左右端音符；一般配對失敗時改用最接近的有序音符對。
 - tie 必須是相鄰、同音高且結構明確。
-- tuplet 必須找到正確數量的音符。
-- 不確定的候選只保留在 JSON 供人工檢查。
+- 無法安全指定音高的疑似 tie 先保留為 slur，避免輸出錯誤或不完整的 tie。
+- 所有候選仍保留在 JSON 與檢查圖；MusicXML 必須有舊 OMR 建立的音符物件才能實際掛載。
 
 ### 第 7 張：完整鋼琴頁實測
 
@@ -131,26 +132,26 @@ Curve v2 最佳結果（epoch 29）：
 
 - 找到 12 個 staff，也就是 6 組鋼琴系統。
 - 舊 OMR25 建立 336 個 note group。
-- 105 個符號候選通過門檻，其中 85 個連到 note group。
+- 105 個符號候選通過門檻，套用全部保留模式後 105 個都連到 note group。
 - OCR 找到 3 個不同位置的 `cresc.` 候選。
 - 重疊的 pedal 誤判已移除。
-- 其中 2 個 `cresc.` 成功連到音符位置並寫入 MusicXML。
-- 62 個 curve 通過 curve 後處理。
-- 55 個 curve 找到左右兩端音符。
-- 只有 7 條關係通過安全門檻並寫入 MusicXML。
+- 3 個 `cresc.` 都成功連到音符位置並寫入 MusicXML。
+- 68 個 curve 通過 curve 後處理，68 個都保留為可輸出的端點關係。
+- 其中 60 條實際找到兩端都已生成的 music21 音符，因此成功寫入 MusicXML。
+- 另外 8 條仍保留在 JSON 與標示圖，但舊音符解析沒有建立可掛載的端點音符物件。
 
 輸出的 MusicXML 包含：
 
 - 2 個 part，並以 Piano brace 組成雙五線譜。
-- 450 個 note。
-- 40 個 direction element。
-- 18 個 dynamic。
-- 45 個 staccato。
-- 15 個 fingering。
+- 451 個 note。
+- 30 個 direction element。
+- 27 個 dynamic。
+- 51 個 staccato。
+- 17 個 fingering。
 - 4 個 tuplet tag。
 - 6 個 time-modification tag。
-- 14 個 slur endpoint tag，相當於 7 條 slur。
-- 本頁沒有 tie 通過所有安全條件，因此沒有強行輸出 tie。
+- 120 個 slur endpoint tag，相當於 60 條 slur。
+- 本頁沒有可安全指定單一音高的 tie；不確定關係依全部保留策略以 slur 表示，沒有強行建立錯誤的 tie。
 
 ### 第 8 張：目前限制與下一步
 
@@ -172,7 +173,7 @@ Curve v2 最佳結果（epoch 29）：
 
 可以直接這樣說：
 
-> 圖片方框旁的數字只是模型對該候選的信心，不代表整頁準確率，也不代表一定會寫入 MusicXML。我們現在不再直接採用所有 YOLO 結果，而是讓文字、hairpin、tuplet、slur 與 tie 再通過 OCR、幾何或音符關係檢查。Piano50 與 curve v2 已經實際整合進 OMR25，一張真實鋼琴頁也成功輸出成雙五線譜 MusicXML。目前剩下的主要瓶頸已不只是符號偵測，而是鋼琴的節奏、多聲部與跨譜表結構。下一階段需要使用 BPSD ground truth 評估，並以最後的 MusicXML event accuracy 作為標準。
+> 圖片方框旁的數字只是模型對該候選的信心，不代表整頁準確率。人工檢查後，我們決定將畫面上原本灰色的 articulation 與 curve 候選全部保留，再利用最近音符及音樂結構建立關係；不確定的 tie 以 slur 保留，避免寫出錯誤音高。Piano50 與 curve v2 已經實際整合進 OMR25，一張真實鋼琴頁也成功輸出成雙五線譜 MusicXML。目前剩下的主要瓶頸已不只是符號偵測，而是鋼琴的音符解析、節奏、多聲部與跨譜表結構。下一階段需要使用 BPSD ground truth 評估，並以最後的 MusicXML event accuracy 作為標準。
 
 ## 老師可能會問的問題
 
@@ -184,9 +185,9 @@ Curve v2 最佳結果（epoch 29）：
 
 因為兩者外觀可能完全相同。tie 主要由相同音高及相鄰音符的音樂關係決定，而不是只看曲線形狀。
 
-### 「為什麼有些已經偵測到的 curve 不放進 MusicXML？」
+### 「為什麼全部保留後，仍有少數 curve 沒出現在 MusicXML？」
 
-如果曲線缺少端點、連錯音符或結構不明確，寫入 MusicXML 會產生錯誤關係。保留為 review-only 比強行輸出安全。
+候選已全部留在 JSON 與標示圖。少數曲線對應的 note group 沒有被舊 OMR 音符解析轉成 music21 音符，因此 MusicXML 沒有可掛載的端點；這不是 curve 被 confidence 門檻刪除。
 
 ### 「DeepScores 的 mAP 很高，是否代表鋼琴譜也很準？」
 
@@ -195,4 +196,3 @@ Curve v2 最佳結果（epoch 29）：
 ### 「現在可以完全取代人工校正嗎？」
 
 還不行。完整測試仍出現小節拍數錯誤，而且一般鋼琴譜還有多聲部與 cross-staff 問題需要處理。
-

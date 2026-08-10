@@ -3782,6 +3782,9 @@ if __name__ == '__main__':
                     detect_geometry_hairpins=bool(
                         articulation_config.get('detect_geometry_hairpins', True)
                     ),
+                    acceptance_policy=articulation_config.get(
+                        'acceptance_policy', 'all_detected'
+                    ),
                     device=device,
                 )
                 print(
@@ -3831,6 +3834,9 @@ if __name__ == '__main__':
                     confirmed_hairpins=confirmed_hairpins,
                     postprocess_mode=slur_tie_config.get(
                         'postprocess_mode', 'full_bbox'
+                    ),
+                    acceptance_policy=slur_tie_config.get(
+                        'acceptance_policy', 'all_detected'
                     ),
                 )
                 print(

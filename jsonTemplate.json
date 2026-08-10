@@ -68,6 +68,7 @@
     "easyocr_model_dir": "C:/OMR_work/weights/easyocr",
     "validate_hairpins": true,
     "detect_geometry_hairpins": true,
+    "acceptance_policy": "all_detected",
     "class_confidence": {
       "accent": 0.55,
       "staccato": 0.45,
@@ -90,6 +91,7 @@
     "xml_confidence": 0.45,
     "batch": 2,
     "postprocess_mode": "full_bbox",
+    "acceptance_policy": "all_detected",
     "visualize_pages": [1]
   }
 }

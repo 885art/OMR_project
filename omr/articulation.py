@@ -324,6 +324,7 @@ def associate_candidates(
     fallback_unit_size: float = 12.0,
     max_horizontal_units: float = 2.5,
     max_vertical_units: float = 4.0,
+    acceptance_policy: str = "conservative",
 ) -> dict[str, Any]:
     """Associate detector candidates with the closest plausible note group.
 
@@ -331,6 +332,10 @@ def associate_candidates(
     coordinates. The legacy pipeline analyzes segmentation maps at 2x scale.
     """
 
+    policy = str(acceptance_policy).lower()
+    if policy not in {"conservative", "all_detected"}:
+        raise ValueError(f"Unsupported articulation acceptance policy: {acceptance_policy}")
+    permissive = policy == "all_detected"
     if isinstance(coordinate_scale, (tuple, list)):
         scale_x, scale_y = float(coordinate_scale[0]), float(coordinate_scale[1])
     else:
@@ -363,7 +368,7 @@ def associate_candidates(
             }
         )
 
-    accepted_by_key: dict[tuple[int, str], dict[str, Any]] = {}
+    accepted_by_key: dict[tuple[int, str, int], dict[str, Any]] = {}
     for candidate_index, candidate in enumerate(candidates_document.get("candidates", [])):
         candidate["matched_note_group_id"] = None
         candidate["matched_note_id"] = None
@@ -389,17 +394,28 @@ def associate_candidates(
                 or group["staff_index"] is None
                 or candidate_staff == group["staff_index"]
             ]
+            if permissive and len(pool) < 2:
+                pool = groups
             if len(pool) < 2:
                 candidate["association_status"] = "rejected"
                 candidate["association_reason"] = "not_enough_note_groups_for_span"
                 continue
-            start_group = min(
-                pool,
-                key=lambda group: abs(group["cx"] - scaled_bbox[0]) / group["unit"],
-            )
-            stop_group = min(
-                pool,
-                key=lambda group: abs(group["cx"] - scaled_bbox[2]) / group["unit"],
+            ordered_pairs = [
+                (start, stop)
+                for start in pool
+                for stop in pool
+                if start["cx"] < stop["cx"]
+            ]
+            if not ordered_pairs:
+                candidate["association_status"] = "rejected"
+                candidate["association_reason"] = "span_endpoints_not_distinct"
+                continue
+            start_group, stop_group = min(
+                ordered_pairs,
+                key=lambda pair: (
+                    abs(pair[0]["cx"] - scaled_bbox[0]) / pair[0]["unit"]
+                    + abs(pair[1]["cx"] - scaled_bbox[2]) / pair[1]["unit"]
+                ),
             )
             if start_group["index"] == stop_group["index"]:
                 candidate["association_status"] = "rejected"
@@ -408,7 +424,10 @@ def associate_candidates(
             max_endpoint_distance = max_horizontal_units * 1.5
             start_distance = abs(start_group["cx"] - scaled_bbox[0]) / start_group["unit"]
             stop_distance = abs(stop_group["cx"] - scaled_bbox[2]) / stop_group["unit"]
-            if max(start_distance, stop_distance) > max_endpoint_distance:
+            if (
+                not permissive
+                and max(start_distance, stop_distance) > max_endpoint_distance
+            ):
                 candidate["association_status"] = "rejected"
                 candidate["association_reason"] = "span_endpoints_too_far"
                 continue
@@ -455,11 +474,12 @@ def associate_candidates(
         side = str(candidate.get("side", "")).lower()
         possible: list[tuple[float, dict[str, Any], float, float]] = []
         for group in groups:
-            if (
+            different_staff = (
                 candidate_staff is not None
                 and group["staff_index"] is not None
                 and candidate_staff != group["staff_index"]
-            ):
+            )
+            if different_staff and not permissive:
                 continue
             unit = group["unit"]
             dx = abs(cx - group["cx"]) / unit
@@ -476,10 +496,23 @@ def associate_candidates(
                     group["bbox"][1] - scaled_bbox[3],
                     scaled_bbox[1] - group["bbox"][3],
                 ) / unit
-            if not side_valid or dx > max_horizontal_units or vertical_gap > max_vertical_units:
+            if (
+                not permissive
+                and (
+                    not side_valid
+                    or dx > max_horizontal_units
+                    or vertical_gap > max_vertical_units
+                )
+            ):
                 continue
             confidence = max(0.0, min(1.0, float(candidate.get("confidence", 0.0))))
-            cost = dx + 0.35 * vertical_gap + 0.15 * (1.0 - confidence)
+            cost = (
+                dx
+                + 0.35 * vertical_gap
+                + 0.15 * (1.0 - confidence)
+                + (2.0 if different_staff else 0.0)
+                + (1.0 if not side_valid else 0.0)
+            )
             score = 1.0 / (1.0 + cost)
             possible.append((cost, group, score, vertical_gap))
 
@@ -492,7 +525,11 @@ def associate_candidates(
         candidate["matched_note_group_id"] = int(group["index"])
         candidate["association_score"] = round(float(score), 6)
         candidate["association_status"] = "matched"
-        key = (int(group["index"]), semantic)
+        key = (
+            int(group["index"]),
+            semantic,
+            candidate_index if permissive else -1,
+        )
         previous = accepted_by_key.get(key)
         if previous is None or float(score) > float(previous["score"]):
             if previous is not None:
@@ -510,7 +547,7 @@ def associate_candidates(
             candidate["association_reason"] = "duplicate_for_note_group"
             candidate["matched_note_group_id"] = None
 
-    for (group_index, semantic), accepted in accepted_by_key.items():
+    for (group_index, semantic, _), accepted in accepted_by_key.items():
         candidate = candidates_document["candidates"][accepted["candidate_index"]]
         group = accepted["group"]["object"]
         if not hasattr(group, "articulations"):
@@ -536,6 +573,7 @@ def associate_candidates(
         for item in candidates_document.get("candidates", [])
     )
     candidates_document["association"] = {
+        "acceptance_policy": policy,
         "coordinate_scale": {"x": scale_x, "y": scale_y},
         "note_group_count": len(groups),
         "matched_count": matched,
@@ -768,6 +806,7 @@ def process_page_articulations(
     easyocr_model_dir: str | Path | None = None,
     validate_hairpins: bool = True,
     detect_geometry_hairpins: bool = True,
+    acceptance_policy: str = "conservative",
 ) -> dict[str, Any]:
     """Detect, associate, persist, and visualize articulations for one page."""
 
@@ -900,7 +939,14 @@ def process_page_articulations(
         >= thresholds.get(candidate["class_name"], float(confidence))
     ]
     document["candidate_count"] = len(document["candidates"])
-    associate_candidates(document, note_groups, staffs, coordinate_scale=coordinate_scale)
+    document["acceptance_policy"] = str(acceptance_policy).lower()
+    associate_candidates(
+        document,
+        note_groups,
+        staffs,
+        coordinate_scale=coordinate_scale,
+        acceptance_policy=acceptance_policy,
+    )
     from omr.tuplet import associate_tuplet_candidates
 
     associate_tuplet_candidates(
@@ -909,6 +955,7 @@ def process_page_articulations(
         staffs,
         coordinate_scale=coordinate_scale,
         xml_confidence=tuplet_xml_confidence,
+        acceptance_policy=acceptance_policy,
     )
     document["inference_seconds"] = elapsed
     document["detector_backend"] = getattr(model, "backend_name", "ultralytics")
