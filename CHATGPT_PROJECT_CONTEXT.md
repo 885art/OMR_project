@@ -389,7 +389,8 @@ The user can paste this:
   real-model BPSD smoke, and a full one-page OMR25 MusicXML run. The run proved
   executable integration while exposing a remaining 4/4-versus-7/8 rhythm
   error; BPSD ground-truth accuracy is still unavailable. Added technical and
-  teacher-report handoff documents.
+  teacher-report handoff documents. Both handoff documents were subsequently
+  rewritten in Traditional Chinese for the local team and teacher review.
 - 2026-08-09: Completed the 30-epoch curve-v2 run; selected epoch 29 `best.pt`
   and recorded its DeepScores metrics. Re-ran the fixed 20-page domain set and
   generated a three-way symbol/curve/combined gallery. Updated candidate export
