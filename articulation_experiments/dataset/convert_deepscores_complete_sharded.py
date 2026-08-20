@@ -9,6 +9,7 @@ keeping peak CPU memory bounded to one source shard.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -21,6 +22,12 @@ from typing import Any
 
 
 SHARD_PATTERN = re.compile(r"deepscores-complete-(\d+)_(train|test)\.json$")
+CHUNK_RECIPE_SCHEMA_VERSION = 1
+CHUNK_PROGRESS_FILENAME = "chunk_conversion.json"
+EDGE_POLICY = "shift"
+MINIMUM_TENUTO_BBOX_HEIGHT_PIXELS = 8
+NEGATIVE_SAMPLING_SEED_BASE = 20260811
+MANIFEST_DETAIL = "compact"
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -61,6 +68,127 @@ def source_fingerprint(path: Path) -> dict[str, int | str]:
         "size": stat.st_size,
         "mtime_ns": stat.st_mtime_ns,
     }
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def build_conversion_fingerprint(
+    args: argparse.Namespace,
+    mapping_path: Path,
+    converter: Path,
+) -> dict[str, Any]:
+    """Describe every input that can change generated chunk contents."""
+    return {
+        "schema_version": CHUNK_RECIPE_SCHEMA_VERSION,
+        "mapping_sha256": file_sha256(mapping_path),
+        "converter_sha256": file_sha256(converter),
+        "parameters": {
+            "tile_size": args.tile_size,
+            "overlap": args.overlap,
+            "edge_policy": EDGE_POLICY,
+            "minimum_intersection_ratio": args.minimum_intersection_ratio,
+            "minimum_tenuto_bbox_height_pixels": (
+                MINIMUM_TENUTO_BBOX_HEIGHT_PIXELS
+            ),
+            "negative_ratio": args.negative_ratio,
+            "negative_sampling_seed_base": NEGATIVE_SAMPLING_SEED_BASE,
+            "png_compress_level": args.png_compress_level,
+            "manifest_detail": MANIFEST_DETAIL,
+            "max_shards_per_split": args.max_shards_per_split,
+            "max_images_per_shard": args.max_images_per_shard,
+        },
+    }
+
+
+def build_chunk_conversion_record(
+    source: dict[str, int | str],
+    conversion: dict[str, Any],
+    split: str,
+    shard_id: int,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "source_fingerprint": source,
+        "conversion_fingerprint": conversion,
+        "chunk": {
+            "split": split,
+            "shard_id": shard_id,
+            "seed": NEGATIVE_SAMPLING_SEED_BASE + shard_id,
+        },
+    }
+
+
+def _record_mismatches(
+    record: dict[str, Any],
+    expected: dict[str, Any],
+) -> list[str]:
+    return [
+        key
+        for key in (
+            "source_fingerprint",
+            "conversion_fingerprint",
+            "chunk",
+        )
+        if record.get(key) != expected.get(key)
+    ]
+
+
+def determine_chunk_action(
+    chunk_root: Path,
+    expected_record: dict[str, Any],
+    *,
+    resume: bool,
+    overwrite_chunks: bool,
+) -> str:
+    """Return convert/resume/recover/reuse/overwrite without unsafe reuse."""
+    if overwrite_chunks:
+        return "overwrite"
+    if not chunk_root.exists() or not any(chunk_root.iterdir()):
+        return "convert"
+    if not resume:
+        raise FileExistsError(
+            f"Chunk output already exists: {chunk_root}; use --resume"
+        )
+
+    progress_path = chunk_root / CHUNK_PROGRESS_FILENAME
+    if not progress_path.is_file():
+        raise RuntimeError(
+            "Unsafe resume refused because the chunk has no conversion "
+            f"fingerprint: {chunk_root}. Use a new --output-dir or explicitly "
+            "pass --overwrite-chunks."
+        )
+    progress = load_json(progress_path)
+    mismatches = _record_mismatches(progress, expected_record)
+    if mismatches:
+        raise RuntimeError(
+            f"Unsafe resume refused for {chunk_root}; changed: "
+            f"{', '.join(mismatches)}. Use a new --output-dir or explicitly "
+            "pass --overwrite-chunks."
+        )
+
+    complete_path = chunk_root / "chunk_complete.json"
+    if complete_path.is_file():
+        complete = load_json(complete_path)
+        mismatches = _record_mismatches(complete, expected_record)
+        if mismatches:
+            raise RuntimeError(
+                f"Unsafe completed-chunk reuse refused for {chunk_root}; "
+                f"changed: {', '.join(mismatches)}. Use a new --output-dir "
+                "or explicitly pass --overwrite-chunks."
+            )
+        return "reuse"
+
+    if (chunk_root / "dataset.yaml").is_file() and (
+        chunk_root / "statistics.json"
+    ).is_file():
+        return "recover"
+    return "resume"
 
 
 def validate_chunk(
@@ -170,6 +298,11 @@ def main() -> int:
     names = list(mapping["yolo_names"])
     if len(names) != 136:
         raise ValueError(f"Expected 136 classes, found {len(names)}")
+    conversion_fingerprint = build_conversion_fingerprint(
+        args,
+        mapping_path,
+        converter,
+    )
 
     if output_dir.exists() and not args.resume and any(output_dir.iterdir()):
         raise FileExistsError(f"Output exists; use --resume: {output_dir}")
@@ -197,15 +330,38 @@ def main() -> int:
             chunk_key = f"{split}_{shard_id:03d}"
             chunk_root = output_dir / "chunks" / chunk_key
             marker_path = chunk_root / "chunk_complete.json"
-            fingerprint = source_fingerprint(shard_path)
-            reuse = False
-            if args.resume and marker_path.is_file():
-                marker = load_json(marker_path)
-                reuse = marker.get("source_fingerprint") == fingerprint
+            progress_path = chunk_root / CHUNK_PROGRESS_FILENAME
+            source_record = source_fingerprint(shard_path)
+            expected_record = build_chunk_conversion_record(
+                source_record,
+                conversion_fingerprint,
+                split,
+                shard_id,
+            )
+            action = determine_chunk_action(
+                chunk_root,
+                expected_record,
+                resume=args.resume,
+                overwrite_chunks=args.overwrite_chunks,
+            )
 
-            if reuse:
+            if action == "reuse":
                 print(f"REUSING {chunk_key}: {shard_path.name}", flush=True)
+            elif action == "recover":
+                print(
+                    f"RECOVERING COMPLETE {chunk_key}: {shard_path.name}",
+                    flush=True,
+                )
             else:
+                if action == "overwrite" and marker_path.is_file():
+                    marker_path.unlink()
+                write_json_atomic(
+                    progress_path,
+                    {
+                        **expected_record,
+                        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
                 command = [
                     sys.executable,
                     str(converter),
@@ -222,21 +378,21 @@ def main() -> int:
                     "--overlap",
                     str(args.overlap),
                     "--edge-policy",
-                    "shift",
+                    EDGE_POLICY,
                     "--minimum-intersection-ratio",
                     str(args.minimum_intersection_ratio),
                     "--minimum-tenuto-bbox-height-pixels",
-                    "8",
+                    str(MINIMUM_TENUTO_BBOX_HEIGHT_PIXELS),
                     "--negative-ratio",
                     str(args.negative_ratio),
                     "--seed",
-                    str(20260811 + shard_id),
+                    str(NEGATIVE_SAMPLING_SEED_BASE + shard_id),
                     "--png-compress-level",
                     str(args.png_compress_level),
                     "--progress-every",
                     "100",
                     "--manifest-detail",
-                    "compact",
+                    MANIFEST_DETAIL,
                     "--splits",
                     split,
                     f"--{split}-json",
@@ -246,9 +402,9 @@ def main() -> int:
                     command.extend(
                         ["--max-images-per-split", str(args.max_images_per_shard)]
                     )
-                if args.overwrite_chunks:
+                if action == "overwrite":
                     command.append("--overwrite")
-                elif chunk_root.exists():
+                elif action == "resume":
                     command.append("--resume")
                 print(
                     f"CONVERTING {chunk_key} ({order}/{len(shards)}): {shard_path.name}",
@@ -260,9 +416,9 @@ def main() -> int:
             write_json_atomic(
                 marker_path,
                 {
-                    "schema_version": 1,
+                    **expected_record,
+                    "schema_version": 2,
                     "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-                    "source_fingerprint": fingerprint,
                     "metrics": {
                         key: value
                         for key, value in metrics.items()
@@ -335,6 +491,7 @@ def main() -> int:
             "negative_ratio": args.negative_ratio,
             "max_shards_per_split": args.max_shards_per_split,
             "max_images_per_shard": args.max_images_per_shard,
+            "conversion_fingerprint": conversion_fingerprint,
         },
         "splits": {
             split: {
@@ -366,6 +523,7 @@ def main() -> int:
             "converter_unassigned_annotation_count_zero",
             "invalid_source_bbox_drop_audited",
             "source_filename_unique_across_shards_and_splits",
+            "resume_requires_matching_source_mapping_converter_and_parameters",
         ],
         "splits": statistics["splits"],
     }

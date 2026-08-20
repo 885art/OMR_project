@@ -27,6 +27,11 @@ same model when another method is technically better.
   a commit hash from this document into scripts.
 - Large data, experiment output, OCR models, and `.pt` files are intentionally
   not stored in Git.
+- One legacy 5.6 MB baseline checkpoint under
+  `articulation_experiments/outputs/runs/baseline_v1/weights/best.pt` was already
+  tracked historically and is still referenced by legacy defaults. The global
+  `*.pt` ignore prevents new checkpoints but does not untrack that existing
+  exception; do not add further model weights.
 
 ## 3. Local development environment
 
@@ -334,6 +339,17 @@ Dense all136 `best.pt` for up to 30 epochs and does not reference BPSD. These
 scripts pass local Bash syntax checks, but the actual Linux/H100 smoke is still
 required before declaring the server operational.
 
+Complete chunk resume is now recipe-safe: each partial and completed chunk
+records the source fingerprint, mapping and base-converter SHA256 values, and
+the tiling/sampling/compression/limit parameters. A mismatch fails closed and
+requires a new output directory or explicit `--overwrite-chunks`; legacy chunks
+without the new progress fingerprint are not silently reused. The current
+engineering pretraining split still maps the 26 official Complete test shards
+to YOLO validation for early stopping, so those metrics must not be reported as
+untouched official test performance. A publication-grade experiment would hold
+validation out of the 103 official train shards and evaluate official test only
+after model selection; that split change is intentionally deferred.
+
 For two 3090s, first use one GPU per experiment to compare BPSD-only versus
 generic-pretrain-plus-BPSD in parallel. After the data recipe is selected, test
 YOLOv9 DistributedDataParallel on a smoke dataset before using both GPUs for the
@@ -392,6 +408,12 @@ for private server values.
   smoke. It transferred 2,160/2,172 compatible tensors from the existing
   Piano50 checkpoint and peaked at about 18.6 GB reported training GPU memory.
   Smoke accuracy is intentionally meaningless after one epoch.
+- After the resume-safety update, 45 articulation/piano dataset and integration
+  tests plus 14 slur/tie tests passed. A real one-page-per-split Complete micro
+  conversion produced 6/12 train/validation tiles, reused both chunks with an
+  identical recipe, and rejected reuse after overlap changed from 256 to 128.
+  A separate micro run confirmed that explicit `--overwrite-chunks` rebuilt
+  both splits under the changed overlap and updated the stored fingerprint.
 - The local YOLOv9-E 30-epoch run completed with 30 result rows and produced
   `weights/best.pt` and `weights/last.pt`. The best source-domain mAP@0.5:0.95
   was 0.97734 at epoch 26.
@@ -500,6 +522,12 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-20: Hardened Git ignores for model checkpoints and root-level data/run
+  directories. Added fail-closed Complete chunk resume fingerprints covering
+  source metadata, mapping/converter hashes, and conversion parameters,
+  including interrupted partial chunks; explicit overwrite is required after a
+  recipe change. Documented that official Complete test shards currently serve
+  as YOLO validation and therefore are not an untouched reported test set.
 - 2026-08-20: Added a laptop/GPT entry document that identifies the canonical
   files to read, the no-BPSD Dense-to-Complete workflow, required external data
   and weights, Git clone commands, validation boundaries, and a ready-to-paste

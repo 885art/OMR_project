@@ -56,6 +56,9 @@ GitHub 不包含：
 4. 可用的 Python/PyTorch/CUDA 環境；
 5. 若在伺服器跑，伺服器的 scratch 路徑與 Slurm account/partition/GPU 名稱。
 
+若 Berlioz 使用 Docker，`PYTHON`、YOLOv9、資料、權重與輸出全部使用 container
+內的 mount 路徑；不要沿用 Windows 或 host 端路徑。
+
 ## 筆電 clone
 
 ```bash
@@ -81,7 +84,9 @@ DEEPSCORES_ALL136_TRAINING.md 和 server/README_COMPLETE_ALL136_SERVER.md。
 
 目前只做 DeepScores Dense all136 best.pt → Complete all136 continued
 training，不使用 BPSD。不要從零訓練，不要把 smoke 與 full 寫進同一資料夾，
-不要宣稱伺服器已可正式訓練，除非實際 Linux/GPU smoke 已成功。
+不要宣稱伺服器已可正式訓練，除非實際 Linux/GPU smoke 已成功。chunk resume
+只有在來源、mapping、converter 與轉換參數 fingerprint 完全相同時才允許；
+不一致時改用新輸出資料夾，除非使用者明確要求重建 chunks。
 
 先檢查這台筆電或伺服器的 OS、GPU、Python/PyTorch/CUDA、YOLOv9、
 ds2_complete、Dense best.pt、儲存空間與 scheduler，再依
@@ -97,3 +102,5 @@ server/README_COMPLETE_ALL136_SERVER.md 執行。任何路徑差異都用環境�
 - Complete 全量 255,385 張尚未轉換完成，也尚未正式訓練。
 - Linux/H100/Slurm 腳本已通過本機 Bash 語法檢查，但仍要在實際伺服器完成
   smoke，才可以說伺服器流程正式可用。
+- Complete 官方 test shards 目前作為 YOLO validation 及 early stopping 使用，
+  所以只能稱為 validation，不能再當 untouched official test performance。

@@ -48,6 +48,10 @@ export ALL136_SMOKE_DATASET="$WORK_ROOT/datasets/deepscores_complete_all136_shar
 
 絕對不能讓 smoke 和 full 指向同一資料夾。
 
+若 Berlioz 使用 Docker，環境檔必須在 container 內載入，所有路徑都填 container
+看得到的 mount 路徑；通常可設 `PYTHON=python`。不要把 host 路徑直接抄進
+container，也不要在尚未知道 image／mount 設定時猜路徑。
+
 依伺服器 CUDA 環境先安裝相容的 PyTorch，再安裝其餘套件：
 
 ```bash
@@ -117,6 +121,16 @@ sbatch --account=YOUR_ACCOUNT --partition=CPU_PARTITION \
 ```
 
 若 job 因時間限制中斷，提交同一條命令即可；正式資料集採分片 `--resume`。
+每個 chunk 都會記錄來源 shard、class mapping、converter SHA256 與所有轉換
+參數。只有 fingerprint 完全相同才會續跑或重用；不一致時程式會安全停止。
+建議參數或程式改變後使用新的輸出資料夾。確定要重建既有 chunks 時才執行：
+
+```bash
+OVERWRITE_CHUNKS=1 SOURCE_KIND=complete MODE=full \
+  bash server/prepare_deepscores_all136.sh
+```
+
+這會重新產生既有 chunks，不能把它當成一般續跑命令。
 只有看到 `ALL136 DATASET READY`，而且正式輸出內有
 `validation_report.json`，才可以進入正式訓練。
 
@@ -172,3 +186,9 @@ $WORK_ROOT/runs/$RUN_NAME/
 報告時應說這是 DeepScores Complete validation 結果，不是鋼琴掃描譜或 BPSD
 準確率。是否能改善真實鋼琴譜，需另外使用不參與訓練的固定頁面做視覺或標註
 評估。
+
+目前 converter 將 Complete 官方 103 個 train shards 作為 YOLO train，26 個
+官方 test shards 作為 YOLO val，供 continued pretraining 的 early stopping 與
+模型選擇。因此這 26 個 shards 已不是 untouched test，不能把結果稱作正式
+DeepScores test performance。若未來要發表正式 test 指標，需從官方 train 另做
+固定 validation split，官方 test 只在最後評估一次；本輪伺服器訓練暫不改 split。

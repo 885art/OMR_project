@@ -4,7 +4,8 @@ param(
     [string]$Mode = "Smoke",
     [string]$PythonExe = "C:\Users\minemine\miniconda3\envs\omr\python.exe",
     [string]$CompleteRoot = "C:\OMR_work\data\ds2_complete",
-    [string]$WorkRoot = "C:\OMR_work\experiments"
+    [string]$WorkRoot = "C:\OMR_work\experiments",
+    [switch]$OverwriteChunks
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +41,10 @@ $Arguments = @(
 )
 if ($Mode -eq "Smoke") {
     $Arguments += @("--max-shards-per-split", "1", "--max-images-per-shard", "10")
+}
+if ($OverwriteChunks) {
+    $Arguments += "--overwrite-chunks"
+    Write-Warning "Explicit chunk overwrite enabled."
 }
 & $PythonExe @Arguments
 if ($LASTEXITCODE -ne 0) {

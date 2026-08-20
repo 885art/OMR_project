@@ -81,6 +81,8 @@ Complete 有103個 train JSON shards、26個 test shards、255,385張來源影�
 
 - 一次只載入一個來源 JSON，限制 CPU RAM。
 - 每個 shard 都有完成標記，可中斷續跑。
+- partial 與完成 chunk 都記錄來源、mapping、converter 與參數 fingerprint；
+  只有完全相同才可續跑，變更 recipe 後應換新輸出目錄或明確重建 chunks。
 - labels/images 留在各 chunk，master `train.txt`、`val.txt` 提供給 YOLO。
 - 使用 compact manifest，避免完整 annotation trace 複製成數百GB。
 - 最後檢查 label 格式、類別範圍、座標、image/label配對及 train/val來源洩漏。
@@ -111,6 +113,11 @@ smoke成功後建立全量資料：
 ```bash
 SOURCE_KIND=complete MODE=full bash server/prepare_deepscores_all136.sh
 ```
+
+目前官方 26 個 Complete test shards 會作為 YOLO validation／early stopping，
+因此結果只能稱為 validation，不能稱作 untouched official test performance。
+若未來要正式報 test 指標，需從 103 個 train shards 另做固定 validation split，
+官方 test 只在最後評估一次；本輪 continued pretraining 暫不更動 split。
 
 正式提交：
 

@@ -9,7 +9,13 @@ string_dataset/
 /yolo/
 /yolov9_all_outputs/
 /Ultralytics/
-/*.pt
+*.pt
+*.pth
+/weights/
+/experiments/
+/datasets/
+/runs/
+/ds2_complete/
 /server/nchc_env.sh
 /server/all136_env.sh
 /server/bps_env.sh
