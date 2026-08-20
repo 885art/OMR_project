@@ -1,0 +1,20 @@
+# Copy outside Git as all136_env.sh and replace every path.
+export PYTHON=/path/to/conda/envs/omr/bin/python
+export YOLOV9_ROOT=/path/to/yolov9
+export WORK_ROOT=/fast/scratch/$USER/omr_experiments
+export COMPLETE_ROOT=/fast/scratch/$USER/ds2_complete
+
+# Complete training dataset produced by prepare_deepscores_all136.sh.
+export ALL136_DATASET="$WORK_ROOT/datasets/deepscores_complete_all136_sharded"
+# Keep smoke output separate from the formal dataset. Never point these two
+# variables at the same directory.
+export ALL136_SMOKE_DATASET="$WORK_ROOT/datasets/deepscores_complete_all136_sharded_smoke10"
+# Upload the Dense all136 best.pt and use it to initialize Complete.
+export INIT_WEIGHTS="$WORK_ROOT/weights/yolov9_dense_all136_best.pt"
+export RUN_NAME=yolov9_e_deepscores_complete_all136_h100
+export DEVICE=0
+export WORKERS=16
+export BATCH_SIZE=12
+export IMAGE_SIZE=1024
+export EPOCHS=30
+export PATIENCE=8

@@ -45,6 +45,9 @@ class BatchPianoPagesTest(unittest.TestCase):
             self.assertIn("raw s（合併前候選）", text)
             self.assertIn("3 outside filtered", text)
             self.assertIn("2 raw s", text)
+            self.assertIn('src="inputs/page.jpeg"', text)
+            self.assertNotIn("file:///", text)
+            self.assertEqual((output / "inputs" / "page.jpeg").read_bytes(), b"x")
 
 
 if __name__ == "__main__":

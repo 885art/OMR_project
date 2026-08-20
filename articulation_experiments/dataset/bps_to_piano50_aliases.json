@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "description": "BPS source-name aliases for the existing 50-class Piano50 detector. Exact target class-name matches are mapped automatically.",
+  "aliases": {
+    "keyboardPed": "keyboardPedalPed",
+    "ornamentShortTrill": "ornamentTrill",
+    "ornamentWiggleTrill": "ornamentTrill"
+  },
+  "intentional_exclusions": {
+    "articStaccato": "The target detector separates above and below; BPS generic boxes cannot be mapped safely without staff geometry.",
+    "articTenutoLong": "The target detector separates above and below.",
+    "articTenutoShort": "The target detector separates above and below.",
+    "dynamicCrescendo": "Printed direction word; handled by OCR, not the hairpin class.",
+    "dynamicCrescendoLong": "Printed direction word; handled by OCR, not the hairpin class.",
+    "dynamicDecrescendo": "Printed direction word; handled by OCR, not the hairpin class.",
+    "dynamicDecrescendoLong": "Printed direction word; handled by OCR, not the hairpin class.",
+    "dynamicDiminuendo": "Printed direction word; handled by OCR, not the hairpin class.",
+    "dynamicDiminuendoLong": "Printed direction word; handled by OCR, not the hairpin class.",
+    "dynamicForteestaccato": "Composite source label has no unambiguous Piano50 target.",
+    "fingeringSubstitution": "No matching Piano50 class.",
+    "tremolo5": "No matching Piano50 class.",
+    "tuplet12": "No matching Piano50 class. Preserve in audit statistics only."
+  }
+}

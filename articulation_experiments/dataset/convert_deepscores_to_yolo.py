@@ -462,6 +462,7 @@ def negative_manifest_record(
 def convert_split(
     split: str,
     dataset_root: Path,
+    annotation_path: Path,
     images_dir: Path,
     output_dir: Path,
     mapping: dict[str, Any],
@@ -478,8 +479,8 @@ def convert_split(
     resume: bool,
     require_full_bbox: bool,
     add_target_centered_windows: bool,
+    manifest_detail: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    annotation_path = dataset_root / SPLIT_FILES[split]
     print(f"LOADING {split}: {annotation_path}", flush=True)
     data = load_json(annotation_path)
     categories = data["categories"]
@@ -750,8 +751,7 @@ def convert_split(
                     for item in annotations_in_tile
                     if not item["clipped_by_tile"]
                 ]
-                manifest_tiles.append(
-                    {
+                full_record = {
                         "source_image": source_filename,
                         "source_image_id": str(image["id"]),
                         "split": split,
@@ -781,7 +781,23 @@ def convert_split(
                         "ignored_partial_annotation_ids": ignored_partial_ids,
                         "annotations": annotations_in_tile,
                     }
-                )
+                if manifest_detail == "full":
+                    manifest_tiles.append(full_record)
+                else:
+                    manifest_tiles.append(
+                        {
+                            "source_image": source_filename,
+                            "source_image_id": str(image["id"]),
+                            "split": split,
+                            "tile_filename": image_path.name,
+                            "image_path": image_path.relative_to(output_dir).as_posix(),
+                            "label_path": label_path.relative_to(output_dir).as_posix(),
+                            "tile_offset": {"x": window.x, "y": window.y},
+                            "tile_origin": tile_origin,
+                            "is_negative": False,
+                            "annotation_count": len(annotations_in_tile),
+                        }
+                    )
 
         if progress_every > 0 and (
             (image_order + 1) % progress_every == 0 or image_order + 1 == len(images)
@@ -905,6 +921,7 @@ def convert_split(
             "require_full_bbox": require_full_bbox,
             "add_target_centered_windows": add_target_centered_windows,
             "negative_ratio": negative_ratio,
+            "manifest_detail": manifest_detail,
             "negative_sampling_seed": seed,
             "padding": "right/bottom white padding",
         },
@@ -947,6 +964,7 @@ def convert_split(
         }
 
     split_statistics = {
+        "source_filenames": sorted(image["filename"] for image in images),
         "source_image_count": len(images),
         "source_images_with_target": len(images_with_targets),
         "candidate_tile_count": positive_tile_count + len(negative_candidates),
@@ -1165,6 +1183,16 @@ def parse_args() -> argparse.Namespace:
         help="Never emit a label whose source bbox is clipped by a tile",
     )
     parser.add_argument(
+        "--train-json",
+        type=Path,
+        help="Override the train annotation JSON (used by sharded Complete conversion)",
+    )
+    parser.add_argument(
+        "--val-json",
+        type=Path,
+        help="Override the validation annotation JSON (used by sharded Complete conversion)",
+    )
+    parser.add_argument(
         "--add-target-centered-windows",
         action="store_true",
         help="Add a centered crop when no regular grid tile fully contains a target",
@@ -1181,6 +1209,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--splits", nargs="+", choices=tuple(SPLIT_FILES), default=["train", "val"])
     parser.add_argument("--max-images-per-split", type=int)
     parser.add_argument("--progress-every", type=int, default=100)
+    parser.add_argument(
+        "--manifest-detail",
+        choices=("full", "compact"),
+        default="full",
+        help="Use compact for huge sharded Complete datasets",
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--resume",
@@ -1225,10 +1259,20 @@ def main() -> int:
 
     split_statistics: dict[str, dict[str, Any]] = {}
     raw_statistics: dict[str, dict[str, Any]] = {}
+    annotation_overrides = {"train": args.train_json, "val": args.val_json}
     for split_index, split in enumerate(args.splits):
+        override = annotation_overrides[split]
+        annotation_path = (
+            override.expanduser().resolve()
+            if override is not None
+            else dataset_root / SPLIT_FILES[split]
+        )
+        if not annotation_path.is_file():
+            raise FileNotFoundError(f"Missing {split} annotation JSON: {annotation_path}")
         split_stats, split_raw = convert_split(
             split=split,
             dataset_root=dataset_root,
+            annotation_path=annotation_path,
             images_dir=images_dir,
             output_dir=output_dir,
             mapping=mapping,
@@ -1245,6 +1289,7 @@ def main() -> int:
             resume=args.resume,
             require_full_bbox=args.require_full_bbox,
             add_target_centered_windows=args.add_target_centered_windows,
+            manifest_detail=args.manifest_detail,
         )
         split_statistics[split] = split_stats
         raw_statistics[split] = split_raw
@@ -1279,8 +1324,19 @@ def main() -> int:
             "negative_ratio": args.negative_ratio,
             "seed": args.seed,
             "splits": args.splits,
+            "source_annotation_files": {
+                split: str(
+                    (
+                        annotation_overrides[split].expanduser().resolve()
+                        if annotation_overrides[split] is not None
+                        else dataset_root / SPLIT_FILES[split]
+                    )
+                )
+                for split in args.splits
+            },
             "max_images_per_split": args.max_images_per_split,
             "resumed": args.resume,
+            "manifest_detail": args.manifest_detail,
             "padding": "right/bottom white padding",
         },
         "totals": totals,

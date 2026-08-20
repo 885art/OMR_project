@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import shutil
 from pathlib import Path
 
 try:
@@ -37,10 +38,18 @@ def collect_inputs(input_dir: Path, pattern: str, limit: int | None) -> list[Pat
 
 
 def write_gallery(output_dir: Path, pages: list[dict]) -> Path:
+    portable_input_dir = output_dir / "inputs"
+    portable_input_dir.mkdir(parents=True, exist_ok=True)
     cards = []
     for page in pages:
         stem = html.escape(page["image_id"])
-        source_uri = html.escape(Path(page["source"]).as_uri(), quote=True)
+        source = Path(page["source"]).expanduser().resolve()
+        portable_source = portable_input_dir / source.name
+        if source != portable_source.resolve():
+            shutil.copy2(source, portable_source)
+        source_uri = html.escape(
+            portable_source.relative_to(output_dir).as_posix(), quote=True
+        )
         symbol_jpg = f"symbols/{stem}.articulations.jpg"
         symbol_json = f"symbols/{stem}.articulations.json"
         curve_jpg = f"curves/{stem}.slurs_ties.jpg"

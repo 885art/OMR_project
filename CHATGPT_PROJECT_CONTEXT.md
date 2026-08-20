@@ -1,6 +1,6 @@
 # ChatGPT / Codex project context: piano OMR
 
-Last updated: 2026-08-10 (Asia/Taipei)
+Last updated: 2026-08-20 (Asia/Taipei)
 
 This is the canonical handoff document for a new ChatGPT/Codex session. Read it
 before proposing server training or modifying the OMR pipeline. Update it in the
@@ -53,8 +53,17 @@ environment variables and Linux paths, never hard-code these values.
   It contains 25,529 training images and 6,662 validation images after adding
   4,440 parenthesized training tiles. The underlying validated base dataset has
   27,751 tiles and 87,065 instances.
-- Complete source also exists locally, but blindly training all Complete data is
-  **not** the agreed final strategy.
+- On 2026-08-11 the teacher additionally requested an all-class DeepScores
+  experiment. The canonical detector has 136 classes (DeepScores IDs 1--136),
+  not all 208 category-table rows: IDs 137--208 are the MUSCIMA++ compatibility
+  annotation set and duplicate several names.
+- The full Dense all136 dataset is validated at
+  `C:\OMR_work\experiments\datasets\deepscores_dense_all136_1024`: 1,714 source
+  pages, 21,842 tiles, and 2,583,651 tile instances. Dense train contains
+  annotations for 115 of 136 classes; Complete is needed for missing/rare classes.
+- Complete source has 103 train shards, 26 test shards, and 255,385 images.
+  Complete all136 must use the new sharded converter rather than one enormous
+  merged JSON.
 - DeepScores is useful as generic pretraining data, not as a substitute for the
   target piano domain.
 
@@ -62,12 +71,17 @@ environment variables and Linux paths, never hard-code these values.
 
 - 243 Beethoven piano JPEG pages are in:
   `C:\OMR_work\BPSD_score_scan_jpeg`
-- The user says BPSD has already been fully annotated.
-- The annotations are **not currently on this machine or in Git**. The next
-  agent must request the complete annotation export, class list, image-name
-  mapping, and relationship/mask information before building the final dataset.
-- Accept COCO JSON, YOLO, CVAT, Label Studio, Pascal VOC, MusicXML-aligned data,
-  masks, or polylines; inspect before deciding the converter.
+- The full YOLO annotation export is available at `C:\OMR_work\BPS-OMRv01`:
+  243 images, 243 label files, 244 source classes, and 41,874 raw boxes.
+- A frozen work-level split is stored in
+  `articulation_experiments/dataset/bps_work_split_v1.json`: 170 train pages
+  from 21 works, 36 validation pages from five works, and 37 final-test pages
+  from six works. There is no work leakage.
+- BPS supplies bounding boxes, not curve masks, polylines, endpoints, or note
+  relationships. Slur/tie endpoint and semantic decisions therefore remain an
+  OMR25 postprocessing responsibility.
+- One source tie box in `Beethoven_Op007-01-06.txt` is fully outside the page.
+  The converter rejects and audits it without changing the source annotation.
 
 ### Existing local models (not in Git)
 
@@ -140,6 +154,12 @@ environment variables and Linux paths, never hard-code these values.
 - New 50-class model domain test on ten BPSD piano pages and ten string-quartet
   pages:
   `C:\OMR_work\experiments\piano50_eval_20260808_20pages\index.html`
+- Dense all136 visual comparison on the same fixed ten BPSD piano pages and ten
+  string-quartet pages:
+  `C:\OMR_work\experiments\dense_all136_eval_20260813_20pages\index.html`.
+  It places the prior Piano50+curve-v2 output beside all136 overview, core
+  notation, expressive/curve, and layout-structure views. The folder includes
+  portable source/previous images and merged prediction JSON.
 
 These outputs are local diagnostics and are not committed.
 
@@ -254,6 +274,25 @@ Use staff-aware OCR plus a dictionary for `cresc`, `crescendo`, `decresc`,
 `decrescendo`, `dim`, and `diminuendo`. Do not add YOLO text classes unless a
 measured OCR recall problem justifies a separate text-region detector.
 
+### D. Teacher-requested DeepScores all-class experiment
+
+Train YOLOv9-E on all 136 canonical DeepScores classes in this order:
+
+1. Dense all136 on the local RTX 3090;
+2. upload the Dense all136 `best.pt` to the server;
+3. continue training on Complete all136, preferably on one H100;
+
+As of 2026-08-18, the teacher explicitly requested that this training stage not
+use BPSD. BPSD conversion, replay mixing, and fine-tuning are therefore outside
+the active Complete all136 server workflow unless the teacher changes that
+decision later. Evaluation claims must still distinguish DeepScores
+source-domain metrics from real piano-score accuracy.
+
+This experiment does not automatically replace the production 50-class symbol
+plus one-class curve pipeline. It adds noteheads, stems, beams, staffs, rests,
+clefs, slur, tie, and other structural classes whose OMR25 association and
+MusicXML logic still need a separate integration design.
+
 ## 8. BPSD split and evaluation rules
 
 - Split by sonata/Opus, never randomly by page or tile.
@@ -269,21 +308,31 @@ measured OCR recall problem justifies a separate text-region detector.
 
 ## 9. Server-training status
 
-The user plans to train on a server and has mentioned a possible two-RTX-3090
-machine. Exact server OS, GPU count/model, CUDA/PyTorch environment, storage
-paths, and scheduler are not yet confirmed.
+The user plans to train Complete all136 on a server that may have an H100.
+Exact H100 memory, server OS, CUDA/PyTorch environment, storage paths, and
+scheduler configuration are not yet confirmed.
 
-Existing Linux scripts in `server/` support the older 40-class DeepScores flow:
+The repository now includes both Windows and Linux/Slurm preparation and
+training entry points for the 50-class BPS symbol fine-tune, the one-class BPS
+curve fine-tune, and a separate 50-class DeepScores Complete experiment. The
+local BPS datasets pass validation and both Windows fine-tune launchers pass
+RTX 3090 preflight. The Linux/Slurm scripts have not yet completed a smoke on
+the actual server, so do **not** claim server readiness until that succeeds.
 
-- `prepare_symbols_v2.sh`
-- `train_yolov9_symbols.sh`
-- `slurm_yolov9_symbols.sbatch`
-- `nchc_env.example`
+The all136 server path uses `convert_deepscores_complete_sharded.py`, bounded to
+one source shard in CPU memory and resumable per shard. Its master train/val
+indexes passed a real local one-epoch RTX 3090 smoke. H100 defaults should start
+at image size 1024 and batch 12; the local batch-4 smoke used about 18.6--19.4 GB
+VRAM. Data conversion is CPU/RAM/NVMe-bound and is not accelerated materially by
+the H100.
 
-Important: the current Linux script expects 40 classes. The newer 50-class
-piano helper is currently Windows-oriented. Do **not** tell the user the final
-BPSD server pipeline is ready. It cannot be finalized until the BPSD annotation
-format and server environment are known.
+The server workflow now keeps `ALL136_SMOKE_DATASET` separate from the formal
+`ALL136_DATASET`, rejects a full conversion unless all expected 103 train and 26
+test shards are present, provides a CPU-only Slurm preparation job, and provides
+a server file/environment checker. The formal run continues from the local
+Dense all136 `best.pt` for up to 30 epochs and does not reference BPSD. These
+scripts pass local Bash syntax checks, but the actual Linux/H100 smoke is still
+required before declaring the server operational.
 
 For two 3090s, first use one GPU per experiment to compare BPSD-only versus
 generic-pretrain-plus-BPSD in parallel. After the data recipe is selected, test
@@ -292,15 +341,11 @@ final run. Two cards do not combine into one 48 GB memory pool.
 
 ## 10. Required next inputs
 
-Ask the user for:
+Still required for actual server execution:
 
-1. the complete BPSD annotation export;
-2. the class list and image filename mapping;
-3. whether slur/tie annotations are boxes, masks, polylines, endpoints, or note
-   relationships;
-4. server OS and access workflow;
-5. GPU model/count, CUDA/PyTorch versions, CPU/RAM, and fast-storage path;
-6. whether the scheduler is Slurm and the required account/partition fields.
+1. server OS and access workflow;
+2. GPU model/count, CUDA/PyTorch versions, CPU/RAM, and fast-storage path;
+3. whether the scheduler is Slurm and its required account/partition fields.
 
 Never request or store passwords/tokens in Git. Use an ignored environment file
 for private server values.
@@ -316,6 +361,37 @@ for private server values.
 - The augmented full dataset passed its derived-dataset checks with 25,529
   training images, 6,662 validation images, 4,440 parenthesized images, and 50
   classes. YOLOv9 RTX 3090 preflight also passed against this dataset.
+- Both formal BPS target datasets and their 1:1 replay mixes passed validation.
+  Symbols contain 5,057/1,075/1,101 target tiles for train/val/test; the mixed
+  symbol train contains 10,114 tiles. Curves contain 340/72/74 target tiles;
+  the mixed curve train contains 680 tiles. Replay is train-only, while BPS
+  validation and final test remain pure target-domain data.
+- Both BPS fine-tune Windows launchers passed RTX 3090 preflight against the
+  validated 50-class and one-class datasets. No BPS fine-tuning run has been
+  started yet.
+- A 50-class DeepScores Complete smoke converted 560 source pages into 8,395
+  tiles and 23,596 tile instances with zero validation errors; its RTX 3090
+  preflight passed. The very large full Complete conversion has not been
+  started automatically.
+- The formal Dense all136 conversion passed full trace validation: 17,281 train
+  tiles plus 4,561 validation tiles, 2,583,651 tile instances, zero unassigned
+  annotations, and 458 audited nonpositive source boxes dropped. The validated
+  dataset passed RTX 3090 136-class preflight.
+- The formal Dense all136 YOLOv9-E run completed all 30 epochs on 2026-08-13 at
+  `C:\OMR_work\experiments\runs\yolov9_e_dense_all136_30ep_b4_3090`.
+  The final/best epoch reported precision 0.97496, recall 0.94792, mAP@0.5
+  0.96553, and mAP@0.5:0.95 0.91764. The highest mAP@0.5:0.95 occurred at
+  epoch 30, while precision/recall/mAP@0.5 peaked at epochs 27/26/28. Training
+  losses decreased throughout. These are Dense source-domain metrics averaged
+  over the 110 validation classes with instances, not BPS piano accuracy and
+  not evidence for the 26 absent validation classes. `best.pt` contains 136
+  names/classes and is the checkpoint to initialize Complete all136.
+- The Complete all136 sharded smoke used ten pages from one train shard and ten
+  pages from one test shard, produced 101/116 tiles, passed master validation,
+  and completed a real one-epoch YOLOv9-E RTX 3090 train/validation/checkpoint
+  smoke. It transferred 2,160/2,172 compatible tensors from the existing
+  Piano50 checkpoint and peaked at about 18.6 GB reported training GPU memory.
+  Smoke accuracy is intentionally meaningless after one epoch.
 - The local YOLOv9-E 30-epoch run completed with 30 result rows and produced
   `weights/best.pt` and `weights/last.pt`. The best source-domain mAP@0.5:0.95
   was 0.97734 at epoch 26.
@@ -336,6 +412,19 @@ for private server values.
   `scikit-learn==1.7.0`, and `pdf2image==1.17.0` for the legacy main program.
   ONNX Runtime could not load its CUDA provider DLL and fell back to CPU; both
   YOLOv9-E detectors did run on the RTX 3090.
+- A separate one-page hybrid all136 smoke completed on BPSD
+  `Beethoven_Op007-01-03` at
+  `C:\OMR_work\experiments\musicxml_all136_hybrid_op007_p03`. It deliberately
+  kept legacy OMR25 for note/pitch/rhythm reconstruction, routed only all136
+  expressive classes through the existing articulation/MusicXML stage, and
+  disabled all136 slur/tie because the visual review showed severe Dense-domain
+  tie false positives. The MusicXML reparsed successfully with music21: two
+  parts, 60 measures across parts, 205 notes, 101 chords, and 15 rests. Of 1,282
+  post-threshold all136 boxes, the semantic gate rejected 1,226 structural
+  boxes; 44 of 56 supported expressive candidates associated to note groups.
+  The output included 13 staccatos, 10 dynamic directions, and 21 fingerings.
+  This proves conflict-free execution, not transcription accuracy; the imported
+  4/4 configuration is still marked for manual time-signature review.
 
 Useful command:
 
@@ -349,6 +438,20 @@ Useful command:
 - `PIANO_OMR_CHANGES.md`: concise local Windows usage notes.
 - `articulation_experiments/dataset/class_mapping_piano.json`: current 50-class
   DeepScores mapping.
+- `articulation_experiments/dataset/generate_deepscores_all_mapping.py`:
+  deterministic official 136-class mapping and schema validation. It maps
+  expressive all136 names onto OMR25 semantic classes while leaving structural
+  note/rest/stem/beam/staff classes unsupported by the articulation stage, so
+  they cannot duplicate the legacy note/rhythm reconstruction in hybrid mode.
+- `articulation_experiments/dataset/convert_deepscores_complete_sharded.py`:
+  memory-bounded, per-shard resumable Complete conversion and master indexes.
+- `articulation_experiments/dataset/convert_bps_yolo_finetune.py`: BPS symbols
+  and whole-curve tiled conversion.
+- `articulation_experiments/dataset/compose_finetune_replay.py`: train-only
+  target/replay composition.
+- `articulation_experiments/dataset/validate_finetune_yolo_dataset.py`: labels,
+  coordinates, pairing, and work-leakage validation.
+- `articulation_experiments/dataset/bps_work_split_v1.json`: frozen BPS split.
 - `articulation_experiments/dataset/augment_parentheses.py`: parenthesis data
   augmentation.
 - `articulation_experiments/dataset/browse_deepscores_dataset.py`: static class
@@ -366,6 +469,11 @@ Useful command:
 - `omr/tuplet.py`: tuplet association and MusicXML attachment.
 - `jsonTemplate.json`: current local runtime defaults.
 - `server/`: Linux/NCHC and Windows training helpers.
+- `BPS_FINETUNING.md`: Traditional-Chinese data, training, final-test, Complete,
+  and server instructions.
+- `DEEPSCORES_ALL136_TRAINING.md`: Dense-first, Complete/H100 all136 workflow.
+- `GPT_HANDOFF_COMPLETE_ALL136.md`: laptop clone requirements and a ready-to-paste
+  prompt for another GPT to continue the no-BPSD Complete all136 workflow.
 - `CURVE_V2_TRAINING.md`: curve-v2 local data recipe, start command, output,
   and recovery notes.
 - `OMR25_PIANO_INTEGRATION.md`: runtime rules, model paths, smoke command, and
@@ -384,14 +492,71 @@ Useful command:
 The user can paste this:
 
 > Read `AGENTS.md` and `CHATGPT_PROJECT_CONTEXT.md` completely. We are building
-> printed piano OMR and will train on a server. Do not propose blindly training
-> all DeepScores Complete. First inspect the BPSD annotation export and server
-> environment, preserve an Opus-level untouched test split, then prepare Linux
-> smoke, BPSD-only, generic-pretrain-plus-BPSD, and final evaluation workflows.
+> printed piano OMR. The teacher now requires a 136-class DeepScores experiment:
+> train Dense all136 locally first, then continue on sharded Complete all136 on
+> the server/H100. Preserve the separate BPS Opus-level test split and remember
+> that the production 50-class plus curve pipeline is not automatically replaced.
 > Update `CHATGPT_PROJECT_CONTEXT.md` with every material decision or result.
 
 ## 14. Change log
 
+- 2026-08-20: Added a laptop/GPT entry document that identifies the canonical
+  files to read, the no-BPSD Dense-to-Complete workflow, required external data
+  and weights, Git clone commands, validation boundaries, and a ready-to-paste
+  handoff prompt. Added private all136/BPS environment filenames to `.gitignore`.
+- 2026-08-18: Recorded the teacher's decision to exclude BPSD from the active
+  all136 training stage. Hardened the Complete server workflow by separating
+  smoke and full output directories, checking the expected 103/26 source
+  shards before full conversion, selecting the correct dataset by training
+  mode, adding a CPU-only Slurm conversion job and server environment checker,
+  and documenting the Dense-best-to-Complete 30-epoch procedure. Local Bash
+  syntax checks passed; an actual server/H100 smoke remains pending.
+- 2026-08-13: Added OMR25 semantic normalization for expressive all136 classes
+  while intentionally leaving note/rest/stem/beam/staff classes unsupported in
+  the articulation stage. Added environment-selectable OMR dataset/piece-list
+  roots so isolated MusicXML trials do not mutate the normal project inputs.
+  Completed and reparsed a one-page Op. 7 hybrid MusicXML smoke; all136
+  structural detections were gated out and therefore did not duplicate the
+  legacy note/rhythm pipeline.
+- 2026-08-13: Ran the completed Dense all136 checkpoint on the same fixed 20
+  BPSD/string pages used for the earlier Piano50 and curve-v2 comparisons.
+  Generated a portable six-view gallery with per-class colors, legends, source
+  images, and merged JSON. At confidence 0.25 the raw cross-domain review has
+  11,870 BPSD and 17,068 string-page boxes. These dense counts and confidence
+  values are not accuracy because the 20 pages lack matching ground truth.
+- 2026-08-13: The local RTX 3090 Dense all136 run completed all 30 epochs. The
+  selected `best.pt` is the final epoch by mAP@0.5:0.95 (0.91764); final
+  precision/recall/mAP@0.5 were 0.97496/0.94792/0.96553. Curves remained stable
+  and training losses continued decreasing. Metrics cover only the 110 Dense
+  validation classes with instances and must not be presented as BPS accuracy.
+- 2026-08-11: Added the teacher-requested all-class DeepScores workflow. Defined
+  the canonical target as 136 official DeepScores categories, excluding 72
+  MUSCIMA++ compatibility IDs that duplicate names. Converted and fully
+  validated Dense all136 into 21,842 1024px tiles with 2,583,651 tile instances;
+  audited 458 nonpositive source boxes and found no unassigned valid annotation.
+  Added an RTX 3090 launcher with preflight and resume support.
+- 2026-08-11: Added a per-shard resumable Complete all136 converter, compact
+  manifests, master train/val indexes, label validation, Windows smoke helpers,
+  and Linux/H100/Slurm launchers. A real 10+10-page sharded dataset completed a
+  one-epoch YOLOv9-E RTX 3090 training, validation, and checkpoint smoke at
+  about 18.6 GB reported GPU memory. Actual server smoke is still pending.
+- 2026-08-11: Located and inspected the 243-page `BPS-OMRv01` YOLO export,
+  froze a 21/5/6-work train/validation/test split, and added reproducible
+  converters for 50-class symbols and whole slur/tie curves. Added train-only
+  1:1 Dense/curve-v2 replay, strict validation including work-leakage checks,
+  conservative fine-tuning hyperparameters, Windows RTX 3090 launchers, and
+  Linux/Slurm templates. All four formal BPS datasets passed validation and
+  both Windows fine-tune preflights passed; training was intentionally not
+  started. Added a locked final-test evaluator so the six test works are not
+  used during model selection.
+- 2026-08-11: Added a 50-class DeepScores Complete preparation and training
+  path. Its smoke run merged 560 source pages and produced 8,395 valid tiles
+  with 23,596 instances and zero validation errors; RTX 3090 preflight passed.
+  Full Complete conversion remains an explicit long-running comparison step,
+  not the default BPS strategy.
+- 2026-08-11: Made detector-review galleries portable by copying source pages
+  into each gallery's `inputs/` directory and emitting relative image links,
+  so moving the result folder to another computer does not break originals.
 - 2026-08-10: Tightened OCR direction-word output boxes independently from the
   expanded recognition crop, added a staff-relative page-furniture filter with
   an audit trail, and exposed raw `dynamicS` detections in purple for detector

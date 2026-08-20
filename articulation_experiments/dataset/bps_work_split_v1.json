@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "name": "bps_beethoven_work_split_v1",
+  "frozen_at": "2026-08-11",
+  "description": "Work-level split for BPS-OMRv01. Pages from one Beethoven work never cross splits.",
+  "source_page_count": 243,
+  "splits": {
+    "train": {
+      "expected_page_count": 170,
+      "works": [
+        "Beethoven_Op002No1",
+        "Beethoven_Op002No2",
+        "Beethoven_Op002No3",
+        "Beethoven_Op007",
+        "Beethoven_Op010No1",
+        "Beethoven_Op010No2",
+        "Beethoven_Op010No3",
+        "Beethoven_Op014No1",
+        "Beethoven_Op014No2",
+        "Beethoven_Op022",
+        "Beethoven_Op026",
+        "Beethoven_Op027No1",
+        "Beethoven_Op028",
+        "Beethoven_Op031No1",
+        "Beethoven_Op031No2",
+        "Beethoven_Op049No2",
+        "Beethoven_Op057",
+        "Beethoven_Op081a",
+        "Beethoven_Op106",
+        "Beethoven_Op110",
+        "Beethoven_Op111"
+      ]
+    },
+    "val": {
+      "expected_page_count": 36,
+      "works": [
+        "Beethoven_Op013",
+        "Beethoven_Op027No2",
+        "Beethoven_Op031No3",
+        "Beethoven_Op049No1",
+        "Beethoven_Op053"
+      ]
+    },
+    "test": {
+      "expected_page_count": 37,
+      "works": [
+        "Beethoven_Op054",
+        "Beethoven_Op078",
+        "Beethoven_Op079",
+        "Beethoven_Op090",
+        "Beethoven_Op101",
+        "Beethoven_Op109"
+      ]
+    }
+  },
+  "notes": [
+    "The test works were not used in the recurring 10/20-page visual review galleries.",
+    "Validation deliberately contains repeatedly inspected representative works and must not be reported as final test accuracy.",
+    "Do not change this manifest after comparing training recipes. Create a v2 manifest instead."
+  ]
+}

@@ -3411,7 +3411,9 @@ def exportYolo(sfnClefList:List[Accidentals|Clef], image:np.ndarray,img_name:str
     cv2.imwrite(f"yolo/debug/{img_name}.jpg",imgg)
 
 if __name__ == '__main__':
-    root_folder = 'string_dataset'
+    # Keep the historical default, while allowing isolated experiments to use
+    # their own data/output root without rewriting the project's piece list.
+    root_folder = os.environ.get('OMR_DATASET_ROOT', 'string_dataset')
     base_folder = f'{root_folder}/pdf_data/'
     base_output_folder = f'{root_folder}/output/'
     pieces = []
@@ -3419,7 +3421,10 @@ if __name__ == '__main__':
         os.mkdir(base_folder)
     if not os.path.isdir(base_output_folder):
         os.mkdir(base_output_folder)
-    with open(f'{root_folder}/piecesToRun.json','r') as f:
+    pieces_to_run = os.environ.get(
+        'OMR_PIECES_TO_RUN', f'{root_folder}/piecesToRun.json'
+    )
+    with open(pieces_to_run,'r', encoding='utf-8-sig') as f:
         pieces = json.load(f)
     for piece_name in pieces:
         OUTPUT_BASE_FOLDER = os.path.join(base_output_folder, piece_name)
@@ -3428,7 +3433,7 @@ if __name__ == '__main__':
         if not os.path.isdir(f"{OUTPUT_BASE_FOLDER}/output"):
             os.mkdir(f"{OUTPUT_BASE_FOLDER}/output")
         piece_base_folder = os.path.join(base_folder, piece_name) # 'string_dataset/pdf_data/beethoven1'
-        with open(f"{piece_base_folder}/{piece_name}.json") as f:
+        with open(f"{piece_base_folder}/{piece_name}.json", encoding='utf-8-sig') as f:
             config = json.load(f)
             NUM_TRACK = config['numTrack']
             TRACK_SHIFT = config['track_shift']

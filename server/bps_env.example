@@ -1,0 +1,24 @@
+# Copy outside Git as bps_env.sh and replace the paths.
+# Never store passwords, tokens, or private SSH settings here.
+
+export PYTHON=/path/to/conda/envs/omr/bin/python
+export YOLOV9_ROOT=/path/to/WongKinYiu/yolov9
+export WORK_ROOT=/fast/scratch/$USER/omr_experiments
+export BPS_ROOT=/fast/scratch/$USER/BPS-OMRv01
+export DENSE_SYMBOL_DATASET=$WORK_ROOT/datasets/piano50_dense_parentheses
+export DENSE_CURVE_DATASET=$WORK_ROOT/datasets/curve_v2_fullbbox_2048
+
+export SYMBOL_DATASET=$WORK_ROOT/datasets/bps_piano50_dense_replay_v1
+export CURVE_DATASET=$WORK_ROOT/datasets/bps_curve_v2_dense_replay_v1
+export SYMBOL_INIT_WEIGHTS=$WORK_ROOT/weights/piano50_dense_best.pt
+export CURVE_INIT_WEIGHTS=$WORK_ROOT/weights/curve_v2_best.pt
+
+# One GPU per experiment is recommended for the first controlled comparison.
+export DEVICE=0
+export WORKERS=8
+# export BATCH_SIZE=4
+# export RUN_NAME=my_explicit_run_name
+
+# For two-GPU DDP after a smoke succeeds:
+# export DEVICE=0,1
+# export BATCH_SIZE=8

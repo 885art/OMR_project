@@ -11,3 +11,5 @@ string_dataset/
 /Ultralytics/
 /*.pt
 /server/nchc_env.sh
+/server/all136_env.sh
+/server/bps_env.sh

@@ -188,8 +188,9 @@ def source_split_context(
     expected_source_stats: dict[str, Any],
     issues: Issues,
     class_count: int,
+    allow_nonpositive_bbox: bool = False,
     max_images: int | None = None,
-) -> tuple[dict[str, Any], dict[str, dict[str, Any]], set[str]]:
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]], set[str], set[str]]:
     data = load_json(source_json)
     images = data["images"] if max_images is None else data["images"][:max_images]
     annotations = data["annotations"]
@@ -208,6 +209,7 @@ def source_split_context(
     class_instances: Counter[int] = Counter()
     class_images: dict[int, set[str]] = defaultdict(set)
     target_annotation_ids: set[str] = set()
+    invalid_target_annotation_ids: set[str] = set()
     excluded_annotation_ids = set(excluded_annotation_reasons)
     for annotation_id in sorted(excluded_annotation_ids):
         annotation = annotations.get(annotation_id)
@@ -259,6 +261,17 @@ def source_split_context(
             continue
         if str(annotation_id) in excluded_annotation_ids:
             continue
+        raw_bbox = annotation.get("a_bbox", [])
+        bbox_is_positive = (
+            isinstance(raw_bbox, (list, tuple))
+            and len(raw_bbox) == 4
+            and all(isinstance(value, (int, float)) for value in raw_bbox)
+            and float(raw_bbox[2]) > float(raw_bbox[0])
+            and float(raw_bbox[3]) > float(raw_bbox[1])
+        )
+        if allow_nonpositive_bbox and not bbox_is_positive:
+            invalid_target_annotation_ids.add(str(annotation_id))
+            continue
         target_annotation_ids.add(str(annotation_id))
         item = mapping_by_deep_id[matching[0]]
         class_id = int(item["yolo_id"])
@@ -298,7 +311,7 @@ def source_split_context(
                 f"{source_json}: class={class_id}: {len(class_images[class_id])} != "
                 f"{expected['source_image_count']}",
             )
-    return data, image_by_id, source_filenames
+    return data, image_by_id, source_filenames, invalid_target_annotation_ids
 
 
 def validate_manifest_annotation(
@@ -461,6 +474,7 @@ def validate_split(
     source_image_by_id: dict[str, dict[str, Any]],
     mapping_by_deep_id: dict[str, dict[str, Any]],
     excluded_annotation_reasons: dict[str, str],
+    allowed_invalid_annotation_ids: set[str],
     class_count: int,
     split_statistics: dict[str, Any],
     configuration: dict[str, Any],
@@ -506,15 +520,21 @@ def validate_split(
             f"{split}: {split_statistics.get('excluded_source_annotation_count', 0)} "
             f"!= {len(expected_excluded_ids)}",
         )
+    if manifest.get("unassigned_annotation_ids"):
+        issues.add(
+            "manifest_unassigned_annotation_ids",
+            f"{manifest_path}: {len(manifest['unassigned_annotation_ids'])} entries",
+        )
     for top_level_key in (
-        "unassigned_annotation_ids",
         "dropped_annotation_ids",
         "target_annotations_missing_from_image_ann_ids",
     ):
-        if manifest.get(top_level_key):
+        actual_ids = {str(value) for value in manifest.get(top_level_key, [])}
+        if actual_ids != allowed_invalid_annotation_ids:
             issues.add(
                 f"manifest_{top_level_key}",
-                f"{manifest_path}: {len(manifest[top_level_key])} entries",
+                f"{manifest_path}: actual={sorted(actual_ids)}, "
+                f"allowed_invalid={sorted(allowed_invalid_annotation_ids)}",
             )
 
     records_by_stem: dict[str, dict[str, Any]] = {}
@@ -772,6 +792,9 @@ def main() -> int:
         str(item["deepscores_id"]): item for item in classes
     }
     exclusions_by_source = mapping.get("excluded_annotation_ids", {})
+    allow_nonpositive_bbox = (
+        mapping.get("invalid_bbox_policy") == "drop_nonpositive_and_audit"
+    )
     expected_names = mapping["yolo_names"]
     class_count = len(expected_names)
     issues = Issues(maximum_examples_per_code=args.max_examples_per_error)
@@ -783,7 +806,7 @@ def main() -> int:
     for split in ("train", "val"):
         source_json = source_dataset_root / SPLIT_SOURCE_FILES[split]
         print(f"LOADING SOURCE {split}: {source_json}", flush=True)
-        source_data, image_by_id, source_filenames = source_split_context(
+        source_data, image_by_id, source_filenames, invalid_annotation_ids = source_split_context(
             source_json,
             mapping_by_deep_id,
             {
@@ -795,6 +818,7 @@ def main() -> int:
             statistics["splits"][split],
             issues,
             class_count,
+            allow_nonpositive_bbox,
             statistics["configuration"].get("max_images_per_split"),
         )
         raw_source_filenames[split] = source_filenames
@@ -811,6 +835,7 @@ def main() -> int:
                     source_json.name, {}
                 ).items()
             },
+            invalid_annotation_ids,
             class_count,
             statistics["splits"][split],
             statistics["configuration"],
