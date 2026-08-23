@@ -546,6 +546,11 @@ The user can paste this:
   `COMPLETE_CONVERSION_WORKERS` server setting, documented a Berlioz starting
   point of eight workers, and preserved all existing resume fingerprints so
   completed and interrupted server chunks continue without a rebuild.
+- 2026-08-23: Moved Complete master readiness invalidation ahead of shard
+  planning, so a planning-time fingerprint mismatch cannot leave a stale
+  successful `validation_report.json` visible to server preflight. Added a
+  regression test that first builds a successful tiny master dataset and then
+  verifies mismatch refusal also removes the old readiness report.
 - 2026-08-20: Hardened Git ignores for model checkpoints and root-level data/run
   directories. Added fail-closed Complete chunk resume fingerprints covering
   source metadata, mapping/converter hashes, and conversion parameters,

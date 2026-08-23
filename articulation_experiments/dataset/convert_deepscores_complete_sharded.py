@@ -502,6 +502,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise FileExistsError(f"Output exists; use --resume: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # validation_report.json is the server-side readiness gate.  Invalidate it
+    # before shard planning because fingerprint checks can fail closed there.
+    validation_report_path = output_dir / "validation_report.json"
+    if validation_report_path.is_file():
+        validation_report_path.unlink()
+
     print(f"Complete shard conversion workers: {args.workers}", flush=True)
     plans: list[ChunkPlan] = []
     seen_chunk_keys: set[str] = set()
@@ -569,13 +575,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     command=command,
                 )
             )
-
-    # validation_report.json is the server-side readiness gate.  Remove any
-    # prior report before work starts so a failed/interrupted rebuild cannot
-    # leave a stale, apparently successful master dataset behind.
-    validation_report_path = output_dir / "validation_report.json"
-    if validation_report_path.is_file():
-        validation_report_path.unlink()
 
     run_conversion_jobs(plans, args.workers)
 

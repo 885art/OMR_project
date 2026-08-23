@@ -191,12 +191,15 @@ class CompleteShardedParallelTest(unittest.TestCase):
         self.add_shard("train", 0)
         self.add_shard("val", 0)
         self.assertEqual(main(self.arguments("--workers", "2")), 0)
+        validation_report = self.output / "validation_report.json"
+        self.assertTrue(validation_report.is_file())
         first_log = self.converter_log()
         mapping = json.loads(self.mapping.read_text(encoding="utf-8"))
         mapping["test_revision"] = 2
         self.mapping.write_text(json.dumps(mapping), encoding="utf-8")
         with self.assertRaisesRegex(RuntimeError, "conversion_fingerprint"):
             main(self.arguments("--workers", "2", "--resume"))
+        self.assertFalse(validation_report.exists())
         self.assertEqual(self.converter_log(), first_log)
 
     def test_incomplete_chunk_resumes(self):
