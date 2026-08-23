@@ -1,6 +1,6 @@
 # ChatGPT / Codex project context: piano OMR
 
-Last updated: 2026-08-20 (Asia/Taipei)
+Last updated: 2026-08-23 (Asia/Taipei)
 
 This is the canonical handoff document for a new ChatGPT/Codex session. Read it
 before proposing server training or modifying the OMR pipeline. Update it in the
@@ -339,6 +339,16 @@ Dense all136 `best.pt` for up to 30 epochs and does not reference BPSD. These
 scripts pass local Bash syntax checks, but the actual Linux/H100 smoke is still
 required before declaring the server operational.
 
+Complete conversion now supports bounded shard-level concurrency through
+`--workers N` and server variable `COMPLETE_CONVERSION_WORKERS`, both defaulting
+to 1. Workers launch independent `convert_deepscores_to_yolo.py` subprocesses;
+only the main process performs deterministic validation and master aggregation
+after every required conversion succeeds. Worker count is deliberately excluded
+from the content fingerprint, so Berlioz can change from 1 to 8 and safely reuse
+the roughly 15 completed chunks or resume a matching interrupted `train_015`.
+Start Berlioz at 4–8 conversion workers rather than its full 96 logical cores;
+this phase is CPU/RAM/storage-I/O bound and does not use the H100.
+
 Complete chunk resume is now recipe-safe: each partial and completed chunk
 records the source fingerprint, mapping and base-converter SHA256 values, and
 the tiling/sampling/compression/limit parameters. A mismatch fails closed and
@@ -414,6 +424,13 @@ for private server values.
   identical recipe, and rejected reuse after overlap changed from 256 to 128.
   A separate micro run confirmed that explicit `--overwrite-chunks` rebuilt
   both splits under the changed overlap and updated the stored fingerprint.
+- After shard concurrency was added, all 53 articulation/piano/dataset tests
+  passed, including fake-subprocess coverage for sequential and parallel jobs,
+  reuse, resume, mismatch refusal, fail-closed publication, deterministic
+  aggregation, worker validation, and smoke limits. A real two-worker Complete
+  micro conversion concurrently loaded one train and one test shard, produced
+  6/12 tiles, and completed the master dataset; rerunning the same output with
+  eight workers reused both chunks without a fingerprint mismatch.
 - The local YOLOv9-E 30-epoch run completed with 30 result rows and produced
   `weights/best.pt` and `weights/last.pt`. The best source-domain mAP@0.5:0.95
   was 0.97734 at epoch 26.
@@ -522,6 +539,13 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-23: Added bounded parallel DeepScores Complete conversion at the shard
+  level with a backward-compatible one-worker default, fail-closed child-process
+  handling, best-effort child termination on interruption, and deterministic
+  single-process final aggregation. Added a separate
+  `COMPLETE_CONVERSION_WORKERS` server setting, documented a Berlioz starting
+  point of eight workers, and preserved all existing resume fingerprints so
+  completed and interrupted server chunks continue without a rebuild.
 - 2026-08-20: Hardened Git ignores for model checkpoints and root-level data/run
   directories. Added fail-closed Complete chunk resume fingerprints covering
   source metadata, mapping/converter hashes, and conversion parameters,

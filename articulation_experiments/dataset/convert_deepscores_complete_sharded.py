@@ -16,9 +16,12 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from threading import Event, Lock
+from typing import Any, Sequence
 
 
 SHARD_PATTERN = re.compile(r"deepscores-complete-(\d+)_(train|test)\.json$")
@@ -28,6 +31,22 @@ EDGE_POLICY = "shift"
 MINIMUM_TENUTO_BBOX_HEIGHT_PIXELS = 8
 NEGATIVE_SAMPLING_SEED_BASE = 20260811
 MANIFEST_DETAIL = "compact"
+
+
+@dataclass(frozen=True)
+class ChunkPlan:
+    split: str
+    shard_id: int
+    shard_path: Path
+    order: int
+    split_shard_count: int
+    chunk_key: str
+    chunk_root: Path
+    marker_path: Path
+    progress_path: Path
+    expected_record: dict[str, Any]
+    action: str
+    command: tuple[str, ...] | None
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -261,7 +280,7 @@ def validate_chunk(
     }
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     script_dir = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--complete-root", type=Path, required=True)
@@ -279,13 +298,188 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--png-compress-level", type=int, default=1)
     parser.add_argument("--max-shards-per-split", type=int)
     parser.add_argument("--max-images-per-shard", type=int)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Maximum number of source shards converted concurrently.",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--overwrite-chunks", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.workers < 1:
+        parser.error("--workers must be at least 1")
+    return args
 
 
-def main() -> int:
-    args = parse_args()
+def build_converter_command(
+    args: argparse.Namespace,
+    *,
+    complete_root: Path,
+    images_dir: Path,
+    mapping_path: Path,
+    converter: Path,
+    split: str,
+    shard_id: int,
+    shard_path: Path,
+    chunk_root: Path,
+    action: str,
+) -> tuple[str, ...]:
+    command = [
+        sys.executable,
+        str(converter),
+        "--dataset-root",
+        str(complete_root),
+        "--images-dir",
+        str(images_dir),
+        "--output-dir",
+        str(chunk_root),
+        "--class-mapping",
+        str(mapping_path),
+        "--tile-size",
+        str(args.tile_size),
+        "--overlap",
+        str(args.overlap),
+        "--edge-policy",
+        EDGE_POLICY,
+        "--minimum-intersection-ratio",
+        str(args.minimum_intersection_ratio),
+        "--minimum-tenuto-bbox-height-pixels",
+        str(MINIMUM_TENUTO_BBOX_HEIGHT_PIXELS),
+        "--negative-ratio",
+        str(args.negative_ratio),
+        "--seed",
+        str(NEGATIVE_SAMPLING_SEED_BASE + shard_id),
+        "--png-compress-level",
+        str(args.png_compress_level),
+        "--progress-every",
+        "100",
+        "--manifest-detail",
+        MANIFEST_DETAIL,
+        "--splits",
+        split,
+        f"--{split}-json",
+        str(shard_path),
+    ]
+    if args.max_images_per_shard is not None:
+        command.extend(["--max-images-per-split", str(args.max_images_per_shard)])
+    if action == "overwrite":
+        command.append("--overwrite")
+    elif action == "resume":
+        command.append("--resume")
+    return tuple(command)
+
+
+def run_conversion_job(
+    plan: ChunkPlan,
+    active_processes: set[subprocess.Popen[Any]],
+    active_lock: Lock,
+    stop_event: Event,
+) -> None:
+    if plan.command is None:
+        raise ValueError(f"No converter command for {plan.chunk_key}")
+
+    with active_lock:
+        if stop_event.is_set():
+            raise RuntimeError(f"Conversion cancelled before {plan.chunk_key} started")
+        if plan.action == "overwrite" and plan.marker_path.is_file():
+            plan.marker_path.unlink()
+        write_json_atomic(
+            plan.progress_path,
+            {
+                **plan.expected_record,
+                "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        print(
+            f"CONVERTING {plan.chunk_key} "
+            f"({plan.order}/{plan.split_shard_count}, action={plan.action}): "
+            f"{plan.shard_path.name}",
+            flush=True,
+        )
+        process = subprocess.Popen(list(plan.command))
+        active_processes.add(process)
+
+    try:
+        return_code = process.wait()
+    finally:
+        with active_lock:
+            active_processes.discard(process)
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, plan.command)
+    print(f"FINISHED {plan.chunk_key}", flush=True)
+
+
+def terminate_active_processes(
+    active_processes: set[subprocess.Popen[Any]],
+    active_lock: Lock,
+    stop_event: Event,
+) -> None:
+    with active_lock:
+        stop_event.set()
+        processes = list(active_processes)
+    for process in processes:
+        if process.poll() is None:
+            process.terminate()
+    for process in processes:
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
+def run_conversion_jobs(plans: list[ChunkPlan], workers: int) -> None:
+    jobs = [
+        plan
+        for plan in plans
+        if plan.action not in {"reuse", "recover"}
+    ]
+    if not jobs:
+        return
+
+    active_processes: set[subprocess.Popen[Any]] = set()
+    active_lock = Lock()
+    stop_event = Event()
+    executor = ThreadPoolExecutor(
+        max_workers=workers,
+        thread_name_prefix="complete-shard",
+    )
+    futures: dict[Future[None], ChunkPlan] = {}
+    try:
+        futures = {
+            executor.submit(
+                run_conversion_job,
+                plan,
+                active_processes,
+                active_lock,
+                stop_event,
+            ): plan
+            for plan in jobs
+        }
+        for future in as_completed(futures):
+            plan = futures[future]
+            try:
+                future.result()
+            except Exception as error:
+                message = (
+                    "Complete shard conversion failed: "
+                    f"split={plan.split}, shard_id={plan.shard_id}, "
+                    f"source={plan.shard_path}"
+                )
+                print(message, file=sys.stderr, flush=True)
+                raise RuntimeError(message) from error
+    except BaseException:
+        for future in futures:
+            future.cancel()
+        terminate_active_processes(active_processes, active_lock, stop_event)
+        raise
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     complete_root = args.complete_root.expanduser().resolve()
     output_dir = args.output_dir.expanduser().resolve()
     mapping_path = args.class_mapping.expanduser().resolve()
@@ -308,18 +502,9 @@ def main() -> int:
         raise FileExistsError(f"Output exists; use --resume: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    master_images: dict[str, list[Path]] = {"train": [], "val": []}
-    source_names: dict[str, set[str]] = {"train": set(), "val": set()}
-    split_totals: dict[str, Counter[str]] = {
-        "train": Counter(),
-        "val": Counter(),
-    }
-    master_class_counts: dict[str, Counter[int]] = {
-        "train": Counter(),
-        "val": Counter(),
-    }
-    shard_records: list[dict[str, Any]] = []
-
+    print(f"Complete shard conversion workers: {args.workers}", flush=True)
+    plans: list[ChunkPlan] = []
+    seen_chunk_keys: set[str] = set()
     for split in ("train", "val"):
         shards = discover_shards(complete_root, split)
         if args.max_shards_per_split is not None:
@@ -328,6 +513,9 @@ def main() -> int:
             raise FileNotFoundError(f"No Complete {split} shards in {complete_root}")
         for order, (shard_id, shard_path) in enumerate(shards, 1):
             chunk_key = f"{split}_{shard_id:03d}"
+            if chunk_key in seen_chunk_keys:
+                raise ValueError(f"Duplicate Complete chunk key: {chunk_key}")
+            seen_chunk_keys.add(chunk_key)
             chunk_root = output_dir / "chunks" / chunk_key
             marker_path = chunk_root / "chunk_complete.json"
             progress_path = chunk_root / CHUNK_PROGRESS_FILENAME
@@ -344,7 +532,6 @@ def main() -> int:
                 resume=args.resume,
                 overwrite_chunks=args.overwrite_chunks,
             )
-
             if action == "reuse":
                 print(f"REUSING {chunk_key}: {shard_path.name}", flush=True)
             elif action == "recover":
@@ -352,111 +539,111 @@ def main() -> int:
                     f"RECOVERING COMPLETE {chunk_key}: {shard_path.name}",
                     flush=True,
                 )
-            else:
-                if action == "overwrite" and marker_path.is_file():
-                    marker_path.unlink()
-                write_json_atomic(
-                    progress_path,
-                    {
-                        **expected_record,
-                        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-                    },
+            command = None
+            if action not in {"reuse", "recover"}:
+                command = build_converter_command(
+                    args,
+                    complete_root=complete_root,
+                    images_dir=images_dir,
+                    mapping_path=mapping_path,
+                    converter=converter,
+                    split=split,
+                    shard_id=shard_id,
+                    shard_path=shard_path,
+                    chunk_root=chunk_root,
+                    action=action,
                 )
-                command = [
-                    sys.executable,
-                    str(converter),
-                    "--dataset-root",
-                    str(complete_root),
-                    "--images-dir",
-                    str(images_dir),
-                    "--output-dir",
-                    str(chunk_root),
-                    "--class-mapping",
-                    str(mapping_path),
-                    "--tile-size",
-                    str(args.tile_size),
-                    "--overlap",
-                    str(args.overlap),
-                    "--edge-policy",
-                    EDGE_POLICY,
-                    "--minimum-intersection-ratio",
-                    str(args.minimum_intersection_ratio),
-                    "--minimum-tenuto-bbox-height-pixels",
-                    str(MINIMUM_TENUTO_BBOX_HEIGHT_PIXELS),
-                    "--negative-ratio",
-                    str(args.negative_ratio),
-                    "--seed",
-                    str(NEGATIVE_SAMPLING_SEED_BASE + shard_id),
-                    "--png-compress-level",
-                    str(args.png_compress_level),
-                    "--progress-every",
-                    "100",
-                    "--manifest-detail",
-                    MANIFEST_DETAIL,
-                    "--splits",
-                    split,
-                    f"--{split}-json",
-                    str(shard_path),
-                ]
-                if args.max_images_per_shard is not None:
-                    command.extend(
-                        ["--max-images-per-split", str(args.max_images_per_shard)]
-                    )
-                if action == "overwrite":
-                    command.append("--overwrite")
-                elif action == "resume":
-                    command.append("--resume")
-                print(
-                    f"CONVERTING {chunk_key} ({order}/{len(shards)}): {shard_path.name}",
-                    flush=True,
+            plans.append(
+                ChunkPlan(
+                    split=split,
+                    shard_id=shard_id,
+                    shard_path=shard_path,
+                    order=order,
+                    split_shard_count=len(shards),
+                    chunk_key=chunk_key,
+                    chunk_root=chunk_root,
+                    marker_path=marker_path,
+                    progress_path=progress_path,
+                    expected_record=expected_record,
+                    action=action,
+                    command=command,
                 )
-                subprocess.run(command, check=True)
+            )
 
-            images, metrics = validate_chunk(chunk_root, split, len(names))
-            write_json_atomic(
-                marker_path,
-                {
-                    **expected_record,
-                    "schema_version": 2,
-                    "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-                    "metrics": {
-                        key: value
-                        for key, value in metrics.items()
-                        if key not in {"source_filenames", "class_instances"}
-                    },
+    # validation_report.json is the server-side readiness gate.  Remove any
+    # prior report before work starts so a failed/interrupted rebuild cannot
+    # leave a stale, apparently successful master dataset behind.
+    validation_report_path = output_dir / "validation_report.json"
+    if validation_report_path.is_file():
+        validation_report_path.unlink()
+
+    run_conversion_jobs(plans, args.workers)
+
+    master_images: dict[str, list[Path]] = {"train": [], "val": []}
+    source_names: dict[str, set[str]] = {"train": set(), "val": set()}
+    split_totals: dict[str, Counter[str]] = {
+        "train": Counter(),
+        "val": Counter(),
+    }
+    master_class_counts: dict[str, Counter[int]] = {
+        "train": Counter(),
+        "val": Counter(),
+    }
+    shard_records: list[dict[str, Any]] = []
+
+    # Phase B is intentionally deterministic and single-threaded.  Workers
+    # never mutate master indexes, aggregate counters, or completion markers.
+    for plan in plans:
+        images, metrics = validate_chunk(
+            plan.chunk_root,
+            plan.split,
+            len(names),
+        )
+        write_json_atomic(
+            plan.marker_path,
+            {
+                **plan.expected_record,
+                "schema_version": 2,
+                "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+                "metrics": {
+                    key: value
+                    for key, value in metrics.items()
+                    if key not in {"source_filenames", "class_instances"}
                 },
+            },
+        )
+        overlap = source_names[plan.split] & set(metrics["source_filenames"])
+        if overlap:
+            raise ValueError(
+                f"Duplicate source pages across {plan.split} shards: "
+                f"{sorted(overlap)[:5]}"
             )
-            overlap = source_names[split] & set(metrics["source_filenames"])
-            if overlap:
-                raise ValueError(
-                    f"Duplicate source pages across {split} shards: {sorted(overlap)[:5]}"
-                )
-            source_names[split].update(metrics["source_filenames"])
-            master_images[split].extend(images)
-            for key in (
-                "tile_count",
-                "tile_instance_count",
-                "source_image_count",
-                "source_target_instance_count",
-                "dropped_invalid_bbox_count",
-            ):
-                split_totals[split][key] += int(metrics[key])
-            master_class_counts[split].update(
-                {
-                    int(class_id): int(count)
-                    for class_id, count in metrics["class_instances"].items()
-                }
-            )
-            shard_records.append(
-                {
-                    "split": split,
-                    "shard_id": shard_id,
-                    "source": str(shard_path),
-                    "chunk_root": str(chunk_root),
-                    "tile_count": metrics["tile_count"],
-                    "tile_instance_count": metrics["tile_instance_count"],
-                }
-            )
+        source_names[plan.split].update(metrics["source_filenames"])
+        master_images[plan.split].extend(images)
+        for key in (
+            "tile_count",
+            "tile_instance_count",
+            "source_image_count",
+            "source_target_instance_count",
+            "dropped_invalid_bbox_count",
+        ):
+            split_totals[plan.split][key] += int(metrics[key])
+        master_class_counts[plan.split].update(
+            {
+                int(class_id): int(count)
+                for class_id, count in metrics["class_instances"].items()
+            }
+        )
+        shard_records.append(
+            {
+                "split": plan.split,
+                "shard_id": plan.shard_id,
+                "source": str(plan.shard_path),
+                "chunk_root": str(plan.chunk_root),
+                "tile_count": metrics["tile_count"],
+                "tile_instance_count": metrics["tile_instance_count"],
+            }
+        )
 
     cross_split = source_names["train"] & source_names["val"]
     if cross_split:
@@ -527,7 +714,7 @@ def main() -> int:
         ],
         "splits": statistics["splits"],
     }
-    write_json_atomic(output_dir / "validation_report.json", report)
+    write_json_atomic(validation_report_path, report)
     print(
         "COMPLETE SHARDED DATASET READY: "
         f"train={len(master_images['train'])} tiles, "

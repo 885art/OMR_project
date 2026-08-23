@@ -4,7 +4,7 @@
 > 不使用 BPSD 作訓練或 fine-tuning。伺服器的逐步命令請以
 > `server/README_COMPLETE_ALL136_SERVER.md` 為準。
 
-更新日期：2026-08-18
+更新日期：2026-08-23
 
 ## 為什麼是136類，不是208類
 
@@ -77,9 +77,10 @@ cmd /c C:\OMR_work\25-omr\server\train_yolov9_dense_all136_3090.bat resume
 
 Complete 有103個 train JSON shards、26個 test shards、255,385張來源影像。若先把所有136類合成單一 JSON，會產生非常大的檔案和記憶體尖峰。
 
-新流程逐一處理 shard：
+新流程以 shard 為安全平行化單位：
 
-- 一次只載入一個來源 JSON，限制 CPU RAM。
+- 每個 converter subprocess 一次只載入一個來源 JSON；`--workers N` 最多同時
+  執行 N 個獨立 shard，預設 1 以維持舊行為。
 - 每個 shard 都有完成標記，可中斷續跑。
 - partial 與完成 chunk 都記錄來源、mapping、converter 與參數 fingerprint；
   只有完全相同才可續跑，變更 recipe 後應換新輸出目錄或明確重建 chunks。
@@ -108,11 +109,27 @@ bash server/train_yolov9_all136.sh preflight
 bash server/train_yolov9_all136.sh smoke
 ```
 
-smoke成功後建立全量資料：
+smoke 成功後建立全量資料。單工相容模式：
 
 ```bash
-SOURCE_KIND=complete MODE=full bash server/prepare_deepscores_all136.sh
+COMPLETE_CONVERSION_WORKERS=1 SOURCE_KIND=complete MODE=full \
+  bash server/prepare_deepscores_all136.sh
 ```
+
+Berlioz 建議先使用 8 個 conversion workers：
+
+```bash
+COMPLETE_CONVERSION_WORKERS=8 SOURCE_KIND=complete MODE=full \
+  bash server/prepare_deepscores_all136.sh
+```
+
+這是 CPU／RAM／storage I/O 工作，不使用 H100。即使有 96 logical cores，也不
+建議直接開 96 個 workers，因為大型 JSON 讀取與 PNG 寫入會競爭記憶體和磁碟；
+先從 4–8 個開始。`COMPLETE_CONVERSION_WORKERS` 和 YOLO DataLoader 的
+`WORKERS` 是不同變數，也不會加入 dataset-content fingerprint。既有完成 chunks
+會 reuse，相同 fingerprint 的中斷 chunk 會 resume；所有 shards 成功後才由主程序
+依 train/val shard ID 順序產生 master indexes 與 validation report。完成資料轉換後
+正式 YOLOv9 training 才使用 H100。
 
 目前官方 26 個 Complete test shards 會作為 YOLO validation／early stopping，
 因此結果只能稱為 validation，不能稱作 untouched official test performance。

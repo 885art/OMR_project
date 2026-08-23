@@ -70,7 +70,8 @@ smoke/full 路徑隔離。若在登入節點執行，`cuda_available=False` 可�
 
 ```bash
 source "$HOME/all136_env.sh"
-SOURCE_KIND=complete MODE=smoke bash server/prepare_deepscores_all136.sh
+COMPLETE_CONVERSION_WORKERS=1 SOURCE_KIND=complete MODE=smoke \
+  bash server/prepare_deepscores_all136.sh
 bash server/train_yolov9_all136.sh smoke
 ```
 
@@ -105,11 +106,22 @@ sbatch --account=YOUR_ACCOUNT --partition=GPU_PARTITION \
 
 ## 3. 轉換 Complete 全量資料
 
-轉換主要使用 CPU、RAM 和磁碟，不需要占用 H100。它會逐 shard 轉換並可續跑：
+轉換主要使用 CPU、RAM 和儲存 I/O，不需要占用 H100。每個 worker 仍只處理一個
+獨立 shard，但可以同時執行多個 shard converter。單工相容模式：
 
 ```bash
 source "$HOME/all136_env.sh"
-SOURCE_KIND=complete MODE=full bash server/prepare_deepscores_all136.sh
+COMPLETE_CONVERSION_WORKERS=1 SOURCE_KIND=complete MODE=full \
+  bash server/prepare_deepscores_all136.sh
+```
+
+Berlioz 有 96 logical CPU cores，但 conversion 同時會讀大型 JSON 並寫大量 PNG；
+不要直接使用 96 workers。先從 4–8 開始，建議目前使用：
+
+```bash
+source "$HOME/all136_env.sh"
+COMPLETE_CONVERSION_WORKERS=8 SOURCE_KIND=complete MODE=full \
+  bash server/prepare_deepscores_all136.sh
 ```
 
 Slurm：
@@ -120,9 +132,18 @@ sbatch --account=YOUR_ACCOUNT --partition=CPU_PARTITION \
   server/slurm_prepare_all136.sbatch
 ```
 
+Slurm 使用時可在私人 `all136_env.sh` 設定
+`export COMPLETE_CONVERSION_WORKERS=8`。這個變數只控制 Complete shard
+conversion subprocess 數量，和 YOLO training 的 DataLoader `WORKERS` 無關。
+完成 conversion 並產生通過的 `validation_report.json` 後，正式 YOLOv9
+training 才使用 H100。
+
 若 job 因時間限制中斷，提交同一條命令即可；正式資料集採分片 `--resume`。
 每個 chunk 都會記錄來源 shard、class mapping、converter SHA256 與所有轉換
 參數。只有 fingerprint 完全相同才會續跑或重用；不一致時程式會安全停止。
+`COMPLETE_CONVERSION_WORKERS` 不屬於資料 recipe，從 1 改成 8 不會讓既有完成
+chunks fingerprint mismatch。已完成的 chunk 會 reuse；中斷且 fingerprint 相同的
+chunk（例如 `train_015`）會 resume，不需要刪除正式輸出或從頭轉換。
 建議參數或程式改變後使用新的輸出資料夾。確定要重建既有 chunks 時才執行：
 
 ```bash

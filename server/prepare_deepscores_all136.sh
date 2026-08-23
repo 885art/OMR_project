@@ -41,6 +41,11 @@ case "$SOURCE_KIND" in
     ;;
   complete)
     SOURCE_ROOT="${COMPLETE_ROOT:?Set COMPLETE_ROOT to ds2_complete}"
+    COMPLETE_CONVERSION_WORKERS="${COMPLETE_CONVERSION_WORKERS:-1}"
+    if [[ ! "$COMPLETE_CONVERSION_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+      echo "COMPLETE_CONVERSION_WORKERS must be a positive integer" >&2
+      exit 2
+    fi
     mapfile -t COMPLETE_TRAIN_SHARDS < <(
       find "$SOURCE_ROOT" -maxdepth 1 -name 'deepscores-complete-*_train.json' -print | sort -V
     )
@@ -76,6 +81,7 @@ case "$SOURCE_KIND" in
     fi
     echo "Complete source shards: train=${#COMPLETE_TRAIN_SHARDS[@]} test=${#COMPLETE_TEST_SHARDS[@]}"
     echo "Output dataset: $DATASET_ROOT"
+    echo "Complete conversion workers: $COMPLETE_CONVERSION_WORKERS"
     OVERWRITE_ARGS=()
     if [[ "${OVERWRITE_CHUNKS:-0}" == "1" ]]; then
       OVERWRITE_ARGS=(--overwrite-chunks)
@@ -87,7 +93,8 @@ case "$SOURCE_KIND" in
       --complete-root "$SOURCE_ROOT" --output-dir "$DATASET_ROOT" \
       --class-mapping "$MAPPING" --tile-size 1024 --overlap 256 \
       --minimum-intersection-ratio 0.6 --negative-ratio 0.05 \
-      --png-compress-level 1 --resume "${OVERWRITE_ARGS[@]}" "${LIMIT_ARGS[@]}"
+      --png-compress-level 1 --workers "$COMPLETE_CONVERSION_WORKERS" \
+      --resume "${OVERWRITE_ARGS[@]}" "${LIMIT_ARGS[@]}"
     ;;
   *)
     echo "SOURCE_KIND must be dense or complete" >&2; exit 2

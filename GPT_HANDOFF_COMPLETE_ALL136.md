@@ -1,6 +1,6 @@
 # 給筆電 GPT 的 Complete all136 專案入口
 
-更新日期：2026-08-20
+更新日期：2026-08-23
 
 ## 先讀哪些文件
 
@@ -35,6 +35,8 @@ GitHub 會包含：
 
 - 136 類 mapping 產生器；
 - Complete 分片、可續跑的 YOLO 資料轉換器；
+- shard-level 平行轉換，`COMPLETE_CONVERSION_WORKERS` 預設 1，Berlioz 建議
+  先從 4–8 開始；
 - dataset validation；
 - Windows RTX 3090 與 Linux/H100/Slurm 腳本；
 - smoke/full 隔離與 103 train／26 test shard 完整性檢查；
@@ -92,6 +94,12 @@ training，不使用 BPSD。不要從零訓練，不要把 smoke 與 full 寫進
 ds2_complete、Dense best.pt、儲存空間與 scheduler，再依
 server/README_COMPLETE_ALL136_SERVER.md 執行。任何路徑差異都用環境檔處理，
 不要把私人路徑或憑證 commit。完成驗證後更新 CHATGPT_PROJECT_CONTEXT.md。
+
+Berlioz full conversion 使用：
+COMPLETE_CONVERSION_WORKERS=8 SOURCE_KIND=complete MODE=full \
+  bash server/prepare_deepscores_all136.sh
+workers 數量不是 dataset fingerprint；既有完成 chunks 必須 reuse，相同 fingerprint
+的中斷 chunk 必須 resume，不要刪除或重建正式輸出。
 ```
 
 ## 目前驗證邊界

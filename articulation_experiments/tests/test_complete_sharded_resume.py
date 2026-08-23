@@ -20,6 +20,7 @@ def converter_args(**overrides):
         "png_compress_level": 1,
         "max_shards_per_split": 1,
         "max_images_per_shard": 10,
+        "workers": 1,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -41,6 +42,11 @@ class CompleteShardedResumeTest(unittest.TestCase):
                 converter_args(overlap=128), mapping, converter
             )
             self.assertNotEqual(original, changed_parameter)
+
+            parallel_workers = build_conversion_fingerprint(
+                converter_args(workers=8), mapping, converter
+            )
+            self.assertEqual(original, parallel_workers)
 
             mapping.write_text('{"version": 2}', encoding="utf-8")
             changed_mapping = build_conversion_fingerprint(
