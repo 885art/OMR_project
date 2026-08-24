@@ -1,6 +1,6 @@
 # ChatGPT / Codex project context: piano OMR
 
-Last updated: 2026-08-23 (Asia/Taipei)
+Last updated: 2026-08-24 (Asia/Taipei)
 
 This is the canonical handoff document for a new ChatGPT/Codex session. Read it
 before proposing server training or modifying the OMR pipeline. Update it in the
@@ -69,6 +69,10 @@ environment variables and Linux paths, never hard-code these values.
 - Complete source has 103 train shards, 26 test shards, and 255,385 images.
   Complete all136 must use the new sharded converter rather than one enormous
   merged JSON.
+- The Berlioz full Complete conversion is now finished and validation passed:
+  204,308 train source pages produced 2,329,441 train tiles; 51,077 official
+  test pages (used here as validation) produced 584,820 validation tiles.
+  The converted dataset remains on server storage and is not committed.
 - DeepScores is useful as generic pretraining data, not as a substitute for the
   target piano domain.
 
@@ -326,18 +330,20 @@ the actual server, so do **not** claim server readiness until that succeeds.
 
 The all136 server path uses `convert_deepscores_complete_sharded.py`, bounded to
 one source shard in CPU memory and resumable per shard. Its master train/val
-indexes passed a real local one-epoch RTX 3090 smoke. H100 defaults should start
-at image size 1024 and batch 12; the local batch-4 smoke used about 18.6--19.4 GB
-VRAM. Data conversion is CPU/RAM/NVMe-bound and is not accelerated materially by
-the H100.
+  indexes passed a real local one-epoch RTX 3090 smoke. The full Berlioz
+  conversion later passed validation at 2,329,441 train and 584,820 validation
+  tiles. H100 defaults use image size 1024 and batch 12; the measured Complete
+  throughput is about 0.557 seconds/batch and roughly 30 hours per train epoch.
+  Data conversion is CPU/RAM/NVMe-bound and is not accelerated materially by the
+  H100.
 
 The server workflow now keeps `ALL136_SMOKE_DATASET` separate from the formal
 `ALL136_DATASET`, rejects a full conversion unless all expected 103 train and 26
 test shards are present, provides a CPU-only Slurm preparation job, and provides
-a server file/environment checker. The formal run continues from the local
-Dense all136 `best.pt` for up to 30 epochs and does not reference BPSD. These
-scripts pass local Bash syntax checks, but the actual Linux/H100 smoke is still
-required before declaring the server operational.
+  a server file/environment checker. The formal run continues from the local
+  Dense all136 `best.pt`, does not reference BPSD, and now defaults to two full
+  epochs rather than 30. Exact mid-epoch resume is not supported by upstream
+  YOLOv9; only completed-epoch checkpoints are safe restart points.
 
 Complete conversion now supports bounded shard-level concurrency through
 `--workers N` and server variable `COMPLETE_CONVERSION_WORKERS`, both defaulting
@@ -539,6 +545,16 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-24: Audited the completed 2.914M-tile Complete all136 dataset and the
+  H100 training cost. The observed YOLOv9-E batch-12 throughput is about 0.557
+  seconds/batch, or about 30 hours per 2.329M-tile train epoch; 30 epochs would
+  exceed 37 days before validation. Added a read-only chunk-statistics audit
+  tool, documented the `shift` edge redundancy and exact duplicate-label scan,
+  and changed the continued-training default to two full epochs, patience zero,
+  per-epoch snapshots, plotting disabled, and a Complete-specific 0.1-epoch
+  warmup. Exact mid-epoch resume is explicitly not supported: upstream YOLOv9
+  does not checkpoint batch position, AMP scaler, RNG/sampler/worker or prefetch
+  state. The server retry1 run must be retained as benchmark evidence.
 - 2026-08-23: Added bounded parallel DeepScores Complete conversion at the shard
   level with a backward-compatible one-worker default, fail-closed child-process
   handling, best-effort child termination on interruption, and deterministic

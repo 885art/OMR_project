@@ -4,7 +4,7 @@
 > 不使用 BPSD 作訓練或 fine-tuning。伺服器的逐步命令請以
 > `server/README_COMPLETE_ALL136_SERVER.md` 為準。
 
-更新日期：2026-08-23
+更新日期：2026-08-24
 
 ## 為什麼是136類，不是208類
 
@@ -77,6 +77,13 @@ cmd /c C:\OMR_work\25-omr\server\train_yolov9_dense_all136_3090.bat resume
 
 Complete 有103個 train JSON shards、26個 test shards、255,385張來源影像。若先把所有136類合成單一 JSON，會產生非常大的檔案和記憶體尖峰。
 
+Berlioz full conversion 已完成並通過 validation：204,308 train source pages
+產生 2,329,441 train tiles；51,077 test/validation source pages 產生 584,820
+validation tiles。H100 batch-12 實測一個 training epoch 約 30 小時，因此
+Complete continued training 改為先做 1–2 full epochs，不沿用 Dense 的 30
+epochs。完整 tiling、成本、validation 與 checkpoint audit 見
+`server/COMPLETE_ALL136_TRAINING_AUDIT.md`。
+
 新流程以 shard 為安全平行化單位：
 
 - 每個 converter subprocess 一次只載入一個來源 JSON；`--workers N` 最多同時
@@ -144,6 +151,10 @@ sbatch --export=ALL,ENV_FILE=/absolute/path/all136_env.sh,MODE=train \
 ```
 
 實際 Slurm 指令中的 account、partition、H100資源名稱要依伺服器規定補上。
+目前 server 預設為 2 epochs、patience 0、warmup 0.1、每 epoch snapshot/full
+validation，並關閉全量 label plotting。官方 YOLOv9 只支援 completed-epoch
+resume；epoch 中間中斷會從該 epoch batch 0 重跑，不可宣稱 exact mid-epoch
+resume。
 
 ## 3090夠不夠
 

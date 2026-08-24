@@ -21,9 +21,9 @@ class mapping、訓練策略、伺服器命令或驗證狀態，必須同步更�
 ```text
 已完成的 DeepScores Dense all136 best.pt
                     ↓
-DeepScores Complete all136 全量分片轉換
+DeepScores Complete all136 全量分片轉換（已完成並通過 validation）
                     ↓
-YOLOv9-E continued training（1024，最多 30 epochs）
+YOLOv9-E continued training（1024，先做 1–2 full epochs）
 ```
 
 目前這個階段不使用 BPSD，不做 BPSD fine-tuning，也不把 BPSD 混進 train 或
@@ -85,8 +85,9 @@ git pull --ff-only origin feature/yolov9-migration
 DEEPSCORES_ALL136_TRAINING.md 和 server/README_COMPLETE_ALL136_SERVER.md。
 
 目前只做 DeepScores Dense all136 best.pt → Complete all136 continued
-training，不使用 BPSD。不要從零訓練，不要把 smoke 與 full 寫進同一資料夾，
-不要宣稱伺服器已可正式訓練，除非實際 Linux/GPU smoke 已成功。chunk resume
+training，不使用 BPSD。不要從零訓練，不要把 smoke 與 full 寫進同一資料夾。
+Complete full conversion 已完成且 validation passed；訓練前先閱讀
+server/COMPLETE_ALL136_TRAINING_AUDIT.md。chunk resume
 只有在來源、mapping、converter 與轉換參數 fingerprint 完全相同時才允許；
 不一致時改用新輸出資料夾，除非使用者明確要求重建 chunks。
 
@@ -107,8 +108,15 @@ workers 數量不是 dataset fingerprint；既有完成 chunks 必須 reuse，�
 - Dense all136 已在本機 RTX 3090 完成 30 epochs。
 - Complete all136 的 10 train／10 validation 頁分片資料已在本機完成 1 epoch
   YOLOv9-E smoke。
-- Complete 全量 255,385 張尚未轉換完成，也尚未正式訓練。
-- Linux/H100/Slurm 腳本已通過本機 Bash 語法檢查，但仍要在實際伺服器完成
-  smoke，才可以說伺服器流程正式可用。
+- Complete 全量 255,385 張已在 Berlioz 轉換並通過 validation：2,329,441
+  train tiles、584,820 validation tiles。正式 continued training 尚未完成。
+- H100 NVL、YOLOv9-E、1024、batch 12 的實測約 0.557 sec/batch，單一
+  training epoch 約 30 小時。30 epochs 不再是合理預設；目前預設先跑兩個
+  full epochs、patience 0、每 epoch checkpoint/full validation。
+- 上游 YOLOv9 只支援 epoch-boundary resume。epoch 中間中斷會從該 epoch
+  batch 0 重跑；不要宣稱有 exact mid-epoch resume，也不要用只存 weights 的
+  假 batch checkpoint。
+- 保留 `/omr/runs/yolov9_e_deepscores_complete_all136_h100_retry1` 作為 log、
+  config 和 benchmark 證據，不要刪除。
 - Complete 官方 test shards 目前作為 YOLO validation 及 early stopping 使用，
   所以只能稱為 validation，不能再當 untouched official test performance。

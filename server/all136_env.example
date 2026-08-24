@@ -19,5 +19,14 @@ export COMPLETE_CONVERSION_WORKERS=1
 export WORKERS=16
 export BATCH_SIZE=12
 export IMAGE_SIZE=1024
-export EPOCHS=30
-export PATIENCE=8
+# Complete is continued training from Dense best.pt, not scratch training.
+# Start with two full epochs. Increase only after reviewing per-class validation.
+export EPOCHS=2
+# Two epochs are too short for meaningful early stopping; 0 disables it.
+export PATIENCE=0
+export SAVE_PERIOD=1
+# full_each_epoch gives comparable 136-class metrics for every completed epoch.
+# full_final_only saves validation time but cannot select the best intermediate epoch.
+export VALIDATION_POLICY=full_each_epoch
+# Avoid the expensive all-label plotting pass on the multi-million-tile dataset.
+export DISABLE_PLOTS=1

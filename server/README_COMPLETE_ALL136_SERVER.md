@@ -6,7 +6,9 @@
 2. DeepScores Complete 的 136 類標註與圖片。
 
 本階段**不讀取、不轉換、也不訓練 BPSD 資料**。Complete 不是從零訓練，
-而是從 Dense all136 的最佳權重繼續訓練 30 epochs。
+而是從 Dense all136 的最佳權重做 continued training。H100 實測一個 train
+epoch 約 30 小時，因此不再預設 30 epochs；完整 audit 與成本推導見
+[`COMPLETE_ALL136_TRAINING_AUDIT.md`](COMPLETE_ALL136_TRAINING_AUDIT.md)。
 
 ## 伺服器需要的內容
 
@@ -179,8 +181,25 @@ sbatch --account=YOUR_ACCOUNT --partition=GPU_PARTITION \
   server/slurm_yolov9_all136.sbatch
 ```
 
-預設為 YOLOv9-E、1024 輸入、30 epochs、early-stopping patience 8。H100
-80GB 先用 batch 12；成功跑過數百 iterations 後可嘗試 16，OOM 就降到 8。
+預設為 YOLOv9-E、1024 輸入、2 full epochs、`patience=0`、每完成一個 epoch
+保存 snapshot，並做 full validation。Complete 專用 hyp 將 warmup 從 2.0
+縮短為 0.1 epoch；其他 detection／augmentation 設定不變。H100 NVL 96GB
+目前 batch 12 約使用 80.5 GB，batch 16 必須另做固定 batches throughput/OOM
+測試，不能直接假設一定可用。
+
+兩個 train epochs 加兩次 full validation 估計約 68 小時，原本 3-day Slurm
+上限過於貼近；repository job 預留 4 days。若中心限制更短，不能靠假的
+mid-epoch checkpoint 解決，必須取得能完成至少一整個 epoch+validation 的 allocation。
+
+若只在最後一輪做完整 validation：
+
+```bash
+export VALIDATION_POLICY=full_final_only
+export PATIENCE=0
+```
+
+預設 `DISABLE_PLOTS=1` 會傳官方 `--noplots`，避免對 291 萬 tiles 畫全量 label
+統計圖。官方 run 仍會保存 `results.csv`、`opt.yaml`、`hyp.yaml` 與 weights。
 
 中斷後續訓：
 
@@ -193,15 +212,25 @@ bash server/train_yolov9_all136.sh resume
 Slurm 續訓時將 `MODE=resume` 一起 export，並確認 `RESUME_CHECKPOINT` 已存在於
 環境檔或提交環境。
 
+這個 resume 只保證回到上一個**已完成 epoch**。官方 checkpoint 沒有保存
+current batch、AMP scaler、sampler／DataLoader worker RNG 與 prefetch queue；
+epoch 中間中斷會重跑該 epoch，不能稱為 exact mid-epoch resume。repository
+不提供只有存 `.pt`、實際卻從 batch 0 重跑的假功能。詳細限制與若要真正實作
+所需條件見 training audit。
+
 ## 5. 結果位置
 
 ```text
 $WORK_ROOT/runs/$RUN_NAME/
 ├── results.csv
-├── results.png
+├── opt.yaml
+├── hyp.yaml
 └── weights/
     ├── best.pt
-    └── last.pt
+    ├── last.pt
+    └── epoch*.pt
+
+$WORK_ROOT/runs/_console_logs/$RUN_NAME.log
 ```
 
 報告時應說這是 DeepScores Complete validation 結果，不是鋼琴掃描譜或 BPSD
