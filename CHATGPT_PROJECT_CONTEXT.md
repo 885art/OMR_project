@@ -545,6 +545,15 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-24: Added index-only Complete all136 experiment tooling without
+  recutting or copying the 179 GB tiles: a deterministic source-page-grouped,
+  class-complete ~50k validation subset; machine-readable per-class YOLOv9 AP;
+  and class-aware weak-class train selection with full per-tile labels plus
+  non-target replay. Added separate `pilot_1epoch` and `targeted` launch modes.
+  A completed one-epoch pilot can initialize a later stage, but official YOLOv9
+  rebuilds optimizer/scheduler and this must not be described as exact resume.
+  RTX 3090/5080 are suitable for smoke/subset checks (start at batch 4/2 for
+  1024); full 2.329M-tile epochs remain H100 work.
 - 2026-08-24: Audited the completed 2.914M-tile Complete all136 dataset and the
   H100 training cost. The observed YOLOv9-E batch-12 throughput is about 0.557
   seconds/batch, or about 30 hours per 2.329M-tile train epoch; 30 epochs would

@@ -9,6 +9,10 @@ export ALL136_DATASET="$WORK_ROOT/datasets/deepscores_complete_all136_sharded"
 # Keep smoke output separate from the formal dataset. Never point these two
 # variables at the same directory.
 export ALL136_SMOKE_DATASET="$WORK_ROOT/datasets/deepscores_complete_all136_sharded_smoke10"
+# Lightweight index-only datasets. Their images and labels still point to the
+# validated Complete dataset; no 179 GB tile copy is made.
+export VALIDATION_SUBSET_DATASET="$WORK_ROOT/datasets/deepscores_complete_all136_val_monitor50k"
+export TARGETED_DATASET="$WORK_ROOT/datasets/deepscores_complete_all136_targeted_v1"
 # Upload the Dense all136 best.pt and use it to initialize Complete.
 export INIT_WEIGHTS="$WORK_ROOT/weights/yolov9_dense_all136_best.pt"
 export RUN_NAME=yolov9_e_deepscores_complete_all136_h100

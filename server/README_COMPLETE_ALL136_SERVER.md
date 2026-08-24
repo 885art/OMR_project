@@ -157,7 +157,34 @@ OVERWRITE_CHUNKS=1 SOURCE_KIND=complete MODE=full \
 只有看到 `ALL136 DATASET READY`，而且正式輸出內有
 `validation_report.json`，才可以進入正式訓練。
 
-## 4. Complete 正式訓練
+## 4. 先建立固定監控集與 Dense baseline
+
+這一步只掃描現有 `train.txt`／`val.txt` 與 labels，建立輕量 index；不複製或
+重切 179 GB tiles。固定監控集以 source page 為抽樣單位、涵蓋全部 136 類：
+
+```bash
+source "$HOME/all136_env.sh"
+bash server/prepare_complete_all136_indexes.sh validation
+VALIDATION_KIND=subset \
+  VALIDATION_RUN_NAME=dense_best_complete_val_monitor50k \
+  bash server/validate_complete_all136.sh
+```
+
+per-class baseline 位於：
+
+```text
+$WORK_ROOT/runs/validation/dense_best_complete_val_monitor50k/per_class_metrics.json
+```
+
+這個 50k subset 只用來快速比較 checkpoint，不可取代最後一次 full
+validation。正式最終評估：
+
+```bash
+VALIDATION_KIND=full VALIDATION_RUN_NAME=final_complete_full \
+  INIT_WEIGHTS=/path/to/final.pt bash server/validate_complete_all136.sh
+```
+
+## 5. Complete 訓練入口
 
 先在 GPU allocation 內執行 preflight：
 
@@ -171,6 +198,35 @@ bash server/train_yolov9_all136.sh preflight
 ```bash
 bash server/train_yolov9_all136.sh train
 ```
+
+若只想先回答「完整 Complete 跑一輪後是否有改善」，使用獨立的 1-epoch pilot：
+
+```bash
+bash server/train_yolov9_all136.sh pilot_1epoch
+```
+
+它確實只跑一個完整 train epoch；若 `VALIDATION_POLICY=full_each_epoch`，最後再跑
+一次完整 validation，估計約 34 小時。這不是把最終計畫永久限制為 1 epoch，
+而是先取得可比較 checkpoint，再決定是否進一步訓練。正式 `train` 的預設仍是
+2 epochs。
+
+注意：官方 YOLOv9 不能把「已正常結束的 1-epoch run」原封不動延長為 2 epochs。
+若 pilot 後要繼續，將 pilot 的 `last.pt`／`best.pt` 設成新 run 的
+`INIT_WEIGHTS`；模型權重會接續，但 optimizer/scheduler 會重新初始化。因此報告
+中應把它稱為第二個 continued-training stage，不可說成同一 run 的 exact resume。
+若一開始就確定要保留同一 optimizer 狀態，直接用正式 2-epoch `train`。
+
+若 baseline 顯示只有部分 classes 較差，可建立 class-aware + replay index：
+
+```bash
+export BASELINE_REPORT="$WORK_ROOT/runs/validation/dense_best_complete_val_monitor50k/per_class_metrics.json"
+bash server/prepare_complete_all136_indexes.sh targeted
+bash server/train_yolov9_all136.sh targeted
+```
+
+預設選出 `mAP@.5:.95 <= 0.50` 類別的 tiles，最多 400k target tiles，並加入
+25% 非 target replay。入選 tile 的所有原始 136 類 labels 都保留，避免把好類別
+當背景；這是第二階段實驗，不能冒充 full Complete all136 epoch。
 
 Slurm：
 
@@ -218,7 +274,35 @@ epoch 中間中斷會重跑該 epoch，不能稱為 exact mid-epoch resume。rep
 不提供只有存 `.pt`、實際卻從 batch 0 重跑的假功能。詳細限制與若要真正實作
 所需條件見 training audit。
 
-## 5. 結果位置
+## 6. 3090／5080 本機測試界線
+
+3090 或 5080 可以做 smoke、固定 subset validation 與小型 targeted index 的
+1-epoch 流程測試。1024 輸入建議 RTX 3090 從 `BATCH_SIZE=4` 開始；RTX 5080
+因 16 GB VRAM 從 `BATCH_SIZE=2` 開始，穩定後再試 4：
+
+```bash
+BATCH_SIZE=4 bash server/train_yolov9_all136.sh smoke  # RTX 3090
+BATCH_SIZE=2 bash server/train_yolov9_all136.sh smoke  # RTX 5080
+```
+
+Windows 可使用既有 `.bat`；以 `OMR_DATASET_ROOT` 指向 smoke 或小型 targeted
+index，不要指向 full dataset：
+
+```powershell
+# RTX 3090
+$env:OMR_DATASET_ROOT='C:\path\to\small_index_dataset'
+$env:OMR_BATCH_SIZE='4'
+& 'C:\OMR_work\25-omr\server\train_yolov9_complete_all136_3090.bat' pilot1
+
+# RTX 5080：同一入口，先從 batch 2 開始
+$env:OMR_BATCH_SIZE='2'
+```
+
+它們適合驗證 CUDA／checkpoint／dataset 與顯存，不適合完整跑 233 萬 train
+tiles，也不能用本機 smoke 的秒數直接推估 H100 全量成本。正式 full epoch 留給
+H100。
+
+## 7. 結果位置
 
 ```text
 $WORK_ROOT/runs/$RUN_NAME/

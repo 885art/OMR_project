@@ -113,6 +113,12 @@ workers 數量不是 dataset fingerprint；既有完成 chunks 必須 reuse，�
 - H100 NVL、YOLOv9-E、1024、batch 12 的實測約 0.557 sec/batch，單一
   training epoch 約 30 小時。30 epochs 不再是合理預設；目前預設先跑兩個
   full epochs、patience 0、每 epoch checkpoint/full validation。
+- 已加入固定 class-complete validation subset、machine-readable per-class AP、
+  class-aware target tiles + replay，以及獨立 `pilot_1epoch`／`targeted` 入口。
+  這些只建立 indexes，不複製或重切 Complete tiles；最終 checkpoint 仍要跑
+  full validation。
+- RTX 3090／5080 可做 smoke、subset validation 與小型 targeted 測試；1024
+  建議分別從 batch 4／2 開始。不要用它們完整跑 233 萬 train tiles。
 - 上游 YOLOv9 只支援 epoch-boundary resume。epoch 中間中斷會從該 epoch
   batch 0 重跑；不要宣稱有 exact mid-epoch resume，也不要用只存 weights 的
   假 batch checkpoint。

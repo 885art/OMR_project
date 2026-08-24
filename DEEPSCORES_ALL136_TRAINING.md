@@ -84,6 +84,13 @@ Complete continued training 改為先做 1–2 full epochs，不沿用 Dense 的
 epochs。完整 tiling、成本、validation 與 checkpoint audit 見
 `server/COMPLETE_ALL136_TRAINING_AUDIT.md`。
 
+2026-08-24 新增不重切資料的兩階段入口：先用約 50k、按 source page 選取且
+涵蓋 136 類的固定 validation subset 量測 Dense per-class baseline；需要時再建立
+class-aware target tiles + 25% replay 的 index-only dataset。所有入選 tile 的原始
+labels 都保留。`pilot_1epoch` 只跑一個 full epoch，正式 `train` 預設仍為兩個。
+3090/5080 僅建議用於 smoke/subset（1024 可分別由 batch 4/2 起試），full
+Complete epoch 留給 H100。
+
 新流程以 shard 為安全平行化單位：
 
 - 每個 converter subprocess 一次只載入一個來源 JSON；`--workers N` 最多同時

@@ -49,10 +49,13 @@ case "$MODE" in
   smoke)
     DATASET_ROOT="${ALL136_SMOKE_DATASET:?Set ALL136_SMOKE_DATASET}"
     ;;
-  preflight|train|resume)
-    DATASET_ROOT="${ALL136_DATASET:?Set ALL136_DATASET}"
+  targeted)
+    DATASET_ROOT="${TRAIN_DATASET_ROOT:-${TARGETED_DATASET:-$WORK_ROOT/datasets/deepscores_complete_all136_targeted_v1}}"
     ;;
-  *) echo "Usage: $0 {preflight|smoke|train|resume}" >&2; exit 2 ;;
+  preflight|train|resume|pilot_1epoch)
+    DATASET_ROOT="${TRAIN_DATASET_ROOT:-${ALL136_DATASET:?Set ALL136_DATASET}}"
+    ;;
+  *) echo "Usage: $0 {preflight|smoke|pilot_1epoch|targeted|train|resume}" >&2; exit 2 ;;
 esac
 
 FULL_DATASET_ROOT="${ALL136_DATASET:-}"
@@ -75,7 +78,11 @@ if [[ -z "${BATCH_SIZE:-}" ]]; then
   fi
 fi
 
-for required in "$DATASET_ROOT/dataset.yaml" "$DATASET_ROOT/validation_report.json" "$INIT_WEIGHTS" "$CFG" "$HYP"; do
+DATASET_PROOF="$DATASET_ROOT/validation_report.json"
+if [[ ! -f "$DATASET_PROOF" ]]; then
+  DATASET_PROOF="$DATASET_ROOT/statistics.json"
+fi
+for required in "$DATASET_ROOT/dataset.yaml" "$DATASET_PROOF" "$INIT_WEIGHTS" "$CFG" "$HYP"; do
   [[ -f "$required" ]] || { echo "Missing required file: $required" >&2; exit 1; }
 done
 [[ "$EPOCHS" =~ ^[1-9][0-9]*$ ]] || { echo "EPOCHS must be a positive integer" >&2; exit 2; }
@@ -88,6 +95,8 @@ done
 case "$MODE" in
   preflight) exit 0 ;;
   smoke) EPOCHS=1; RUN_NAME="${RUN_NAME}_smoke" ;;
+  pilot_1epoch) EPOCHS=1; PATIENCE=0; RUN_NAME="${RUN_NAME}_pilot1" ;;
+  targeted) EPOCHS="${TARGETED_EPOCHS:-1}"; PATIENCE=0; RUN_NAME="${RUN_NAME}_targeted" ;;
   train) ;;
   resume)
     RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-$RUNS_DIR/$RUN_NAME/weights/last.pt}"
@@ -100,6 +109,7 @@ esac
 mkdir -p "$RUNS_DIR"
 [[ ! -e "$RUNS_DIR/$RUN_NAME" ]] || { echo "Run already exists: $RUNS_DIR/$RUN_NAME" >&2; exit 1; }
 echo "Complete all136 training plan: epochs=$EPOCHS patience=$PATIENCE validation=$VALIDATION_POLICY"
+echo "Training dataset: $DATASET_ROOT"
 echo "Checkpoint policy: last.pt and best.pt at each completed epoch; epoch snapshots every $SAVE_PERIOD epoch(s)."
 echo "Exact mid-epoch resume is NOT supported by the current official YOLOv9 DataLoader/checkpoint format."
 exec "$PYTHON" "$LAUNCHER" --yolov9-root "$YOLOV9_ROOT" --script train_dual.py \

@@ -22,6 +22,8 @@ TRAIN_LOG_DIR="${TRAIN_LOG_DIR:-$RUNS_DIR/_console_logs}"
 mkdir -p "$TRAIN_LOG_DIR"
 EFFECTIVE_RUN_NAME="${RUN_NAME:-yolov9_e_deepscores_all136}"
 [[ "$MODE" == "smoke" ]] && EFFECTIVE_RUN_NAME="${EFFECTIVE_RUN_NAME}_smoke"
+[[ "$MODE" == "pilot_1epoch" ]] && EFFECTIVE_RUN_NAME="${EFFECTIVE_RUN_NAME}_pilot1"
+[[ "$MODE" == "targeted" ]] && EFFECTIVE_RUN_NAME="${EFFECTIVE_RUN_NAME}_targeted"
 CONSOLE_LOG="$TRAIN_LOG_DIR/${EFFECTIVE_RUN_NAME}.log"
 exec > >(tee -a "$CONSOLE_LOG") 2>&1
 echo "Console log: $CONSOLE_LOG"

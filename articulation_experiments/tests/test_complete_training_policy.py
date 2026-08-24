@@ -38,6 +38,36 @@ class CompleteTrainingPolicyTest(unittest.TestCase):
         self.assertIn("Exact mid-epoch resume is NOT supported", script)
         self.assertNotIn("checkpoint-every", script.casefold())
 
+    def test_pilot_and_targeted_modes_do_not_change_formal_default(self):
+        script = (self.repo_root / "server" / "train_yolov9_all136.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('pilot_1epoch) EPOCHS=1; PATIENCE=0;', script)
+        self.assertIn('targeted) EPOCHS="${TARGETED_EPOCHS:-1}";', script)
+        self.assertIn('EPOCHS="${EPOCHS:-2}"', script)
+        self.assertIn("TRAIN_DATASET_ROOT", script)
+
+    def test_index_preparation_uses_separate_complete_variables(self):
+        script = (
+            self.repo_root / "server" / "prepare_complete_all136_indexes.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("VALIDATION_SUBSET_DATASET", script)
+        self.assertIn("TARGETED_DATASET", script)
+        self.assertIn("BASELINE_REPORT", script)
+        self.assertNotIn("COMPLETE_CONVERSION_WORKERS", script)
+
+    def test_windows_complete_launcher_matches_short_finetune_policy(self):
+        script = (
+            self.repo_root / "server" / "train_yolov9_complete_all136_3090.bat"
+        ).read_text(encoding="utf-8")
+        self.assertIn('set "EPOCHS=2"', script)
+        self.assertIn('set "PATIENCE=0"', script)
+        self.assertIn('if /I "%~1"=="pilot1"', script)
+        self.assertIn("yolov9_e_dense_all136_30ep_b4_3090", script)
+        self.assertNotIn("yolov9_e_deepscores_dense_all136_30ep_b4_3090", script)
+        self.assertIn("yolov9_score_complete_finetune_hyp.yaml", script)
+        self.assertIn("--noplots", script)
+
 
 if __name__ == "__main__":
     unittest.main()

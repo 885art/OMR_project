@@ -136,8 +136,11 @@ metric 選 best epoch，所以正式比較優先保留 `full_each_epoch`。
 - 覆蓋全部 136 classes，並特別保留 rare classes；
 - 只作 monitoring／checkpoint selection；正式結果仍跑一次 full validation。
 
-在取得 audit 的 per-class／per-page 統計前，不先生成 subset，避免 subset 漏掉
-rare class 而讓 mAP 失真。
+目前 repository 已提供 `build_complete_all136_indexes.py validation`：按 source
+page deterministic 抽樣、強制每類至少涵蓋指定頁數，預設約 50k tiles。它只寫
+index/YAML/statistics，不複製 images/labels。`validate_complete_all136.sh` 會輸出
+machine-readable `per_class_metrics.json`。此 subset 只供快速監控，最終模型仍需
+跑 full 584,820-tile validation。
 
 ### 3. 針對表現差類別做 class-aware fine-tuning
 
@@ -148,6 +151,11 @@ rare class 而讓 mAP 失真。
 
 若老師要求所有 classes 都經過 Complete training，先做一個 full all136 epoch，
 再做 targeted stage，是最清楚的兩階段實驗。
+
+目前 `build_complete_all136_indexes.py targeted` 會由 baseline mAP 選弱類別，
+挑出含這些類別的完整 tiles，並混入 non-target replay。它不刪任何 tile 內的好
+類別 labels，也不重寫 179 GB dataset，因此可安全做成獨立實驗。預設門檻與
+tile 上限是起點，必須在看到 baseline class distribution 後再確認。
 
 ### 4. Batch size
 
@@ -211,7 +219,10 @@ runs/_console_logs/<RUN_NAME>.log
 1. 保留既有 2.914M-tile dataset，先不重切。
 2. 先執行 audit，取得 exact positive/negative 與 annotation duplication factor。
 3. Dense best.pt 先跑固定 validation baseline，取得 per-class 表現。
-4. 第一階段跑 1–2 full epochs；預設 2、warmup 0.1、patience 0、imgsz 1024。
+4. 第一階段可先用 `pilot_1epoch` 跑 1 個 full epoch；正式入口仍預設 2、
+   warmup 0.1、patience 0、imgsz 1024。已正常完成的 1-epoch run 若再以其
+   weights 開新 stage，optimizer/scheduler 會重建，不等同 exact resume；若確定
+   要同一 optimizer 連跑兩輪，應直接使用正式 2-epoch入口。
 5. 預設每 epoch full validation；若伺服器實測 validation 太慢，再改 final-only
    或建立 class-complete deterministic subset。
 6. 每個完成 epoch 保存 `last/best/epochN`；Slurm wall time 必須容納至少一整個
