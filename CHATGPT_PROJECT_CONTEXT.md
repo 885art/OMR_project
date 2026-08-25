@@ -1,6 +1,6 @@
 # ChatGPT / Codex project context: piano OMR
 
-Last updated: 2026-08-24 (Asia/Taipei)
+Last updated: 2026-08-25 (Asia/Taipei)
 
 This is the canonical handoff document for a new ChatGPT/Codex session. Read it
 before proposing server training or modifying the OMR pipeline. Update it in the
@@ -480,6 +480,16 @@ Useful command:
 
 ## 12. Important files
 
+- `docs/handoff/README.md`: concise human-maintainer start page. It routes
+  result review, current-model inference, external assets, and retraining into
+  separate short documents so successors do not need to read every experiment
+  record first.
+- `docs/handoff/CURRENT_RESULTS.md`: current model results, evidence boundary,
+  Complete status, and teacher-safe wording.
+- `docs/handoff/RUN_CURRENT_MODELS.md`: external checkpoint hashes and current
+  single-page, batch, and full MusicXML execution instructions.
+- `docs/handoff/RETRAINING.md`: optional training decision page linking to the
+  detailed Complete/BPSD/curve recipes.
 - `PIANO_OMR_CHANGES.md`: concise local Windows usage notes.
 - `articulation_experiments/dataset/class_mapping_piano.json`: current 50-class
   DeepScores mapping.
@@ -545,6 +555,13 @@ The user can paste this:
 
 ## 14. Change log
 
+- 2026-08-25: Replaced the stale, training-heavy root README with a concise
+  project summary and one human handoff entry. Added `docs/handoff/` pages for
+  current results, external model assets with verified SHA256 values, inference
+  commands, and optional retraining. Existing research/training documents were
+  preserved for traceability but are no longer the default reading path. The
+  handoff explicitly distinguishes the active Piano50 + curve-v2 integration
+  from the unfinished Complete all136 training experiment.
 - 2026-08-24: Added index-only Complete all136 experiment tooling without
   recutting or copying the 179 GB tiles: a deterministic source-page-grouped,
   class-complete ~50k validation subset; machine-readable per-class YOLOv9 AP;

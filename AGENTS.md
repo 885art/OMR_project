@@ -1,5 +1,8 @@
 # Repository instructions for AI agents
 
+Human maintainers should start at `docs/handoff/README.md`. AI agents must still
+read this file and the complete canonical context below before changing behavior.
+
 Before changing training, datasets, inference, or MusicXML behavior, read
 `CHATGPT_PROJECT_CONTEXT.md` completely. Treat it as the current handoff record,
 but verify paths and executable state from the repository and environment.

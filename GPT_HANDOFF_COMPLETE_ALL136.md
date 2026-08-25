@@ -1,5 +1,8 @@
 # 給筆電 GPT 的 Complete all136 專案入口
 
+> 一般接手者請先看 [`docs/handoff/README.md`](docs/handoff/README.md)。本文件只給
+> 需要繼續 Complete all136／H100 訓練或交給另一個 GPT 的人，不是日常推論入口。
+
 更新日期：2026-08-23
 
 ## 先讀哪些文件

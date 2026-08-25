@@ -1,5 +1,9 @@
 # 鋼琴譜 OMR 改善版
 
+> 這是早期 Dense/Piano50 階段的操作紀錄，部分「Complete 尚未處理」描述已是
+> 歷史狀態。接手請以 [`docs/handoff/README.md`](docs/handoff/README.md) 和
+> `CHATGPT_PROJECT_CONTEXT.md` 為準。
+
 給 ChatGPT／Codex 接手專案時，請先讀根目錄的
 `AGENTS.md` 與 `CHATGPT_PROJECT_CONTEXT.md`。後者是需要隨專案進度持續更新的
 完整現況、決策與伺服器訓練交接文件。
