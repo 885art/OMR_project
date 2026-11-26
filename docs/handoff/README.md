@@ -9,7 +9,8 @@
 - 兩個 `.pt` 權重不在 GitHub，必須另外複製；檔案雜湊記在
   [RUN_CURRENT_MODELS.md](RUN_CURRENT_MODELS.md)。
 - DeepScores validation 分數是合成來源域結果，不是鋼琴實譜準確率。
-- Complete all136 tiles 已完成轉換，但 H100 正式模型尚未完成。
+- Complete all136 已在 H100 完成 8 epochs（validation mAP50-95 0.90012）；
+  權重同樣不在 GitHub，且不是主程式預設。
 - 若只是使用現有成果，不必讀 Complete conversion 或 training audit。
 
 ## 你現在要做什麼？
@@ -42,7 +43,7 @@
 | 50 類樂譜符號 | YOLOv9-E Piano50 | 已訓練，現在的整合預設 |
 | slur／tie 視覺曲線 | YOLOv9-E curve-v2，單一 `curve` 類 | 已訓練，現在的整合預設 |
 | 136 類 DeepScores Dense | YOLOv9-E all136 | 已訓練，Complete 的起始權重；不是主程式預設 |
-| 136 類 Complete | Dense → Complete continued training | tiles 已完成；正式 H100 模型尚未完成 |
+| 136 類 Complete | Dense → Complete continued training | 8 epochs 已完成；用於 BPSD 預標註，不是主程式預設 |
 
 ## 絕對不要誤解的三件事
 

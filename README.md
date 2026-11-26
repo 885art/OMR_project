@@ -34,8 +34,10 @@ OCR 和音樂規則整合，目標是將印刷鋼琴譜轉成 MusicXML。
 與曲線端點仍未達到可宣稱完整正確的程度。
 
 老師要求的 **DeepScores Complete all136** 是另一個 continued-training 實驗，
-目前 Complete tiles 已轉換完成，但 H100 正式訓練尚未完成。它不會自動取代
-目前 Piano50 + curve-v2 的主程式模型。
+H100 continued training 已完成 8 epochs；第 8 epoch 的 DeepScores Complete
+validation mAP50-95 為 0.90012（不是鋼琴實譜準確率，詳見
+[目前結果](docs/handoff/CURRENT_RESULTS.md)）。它不會自動取代目前
+Piano50 + curve-v2 的主程式模型。
 
 ## 最短執行方式
 

@@ -595,7 +595,10 @@ The user can paste this:
   Recorded the completed 8-epoch Complete all136 validation metrics and
   anomalies, the unevaluated 20-epoch server run, and the BPSD 0.25/0.01
   pre-annotation counts. Verified with a synthetic smoke run only; no unit
-  tests were added.
+  tests were added. In a follow-up commit, the root `README.md`,
+  `docs/handoff/README.md`, and `docs/handoff/CURRENT_RESULTS.md` were changed
+  from "Complete training unfinished" to the completed 8-epoch state with the
+  same evidence boundaries.
 
 - 2026-08-25: Replaced the stale, training-heavy root README with a concise
   project summary and one human handoff entry. Added `docs/handoff/` pages for
