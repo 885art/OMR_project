@@ -1,6 +1,6 @@
 # ChatGPT / Codex project context: piano OMR
 
-Last updated: 2026-08-25 (Asia/Taipei)
+Last updated: 2026-11-26 (Asia/Taipei)
 
 This is the canonical handoff document for a new ChatGPT/Codex session. Read it
 before proposing server training or modifying the OMR pipeline. Update it in the
@@ -424,6 +424,27 @@ for private server values.
   smoke. It transferred 2,160/2,172 compatible tensors from the existing
   Piano50 checkpoint and peaked at about 18.6 GB reported training GPU memory.
   Smoke accuracy is intentionally meaningless after one epoch.
+- The formal Complete all136 H100 run (initialized from Dense all136
+  `best.pt`; image size 1024, batch 8, AdamW, lr0 0.0005) completed 8 epochs.
+  Epoch 8 is the best epoch: precision 0.95310, recall 0.92605, mAP@0.5
+  0.94375, mAP@0.5:0.95 0.90012. These are **DeepScores Complete validation**
+  metrics on the official test shards used as validation; they are not an
+  untouched test result, not BPSD piano accuracy, and not MusicXML accuracy.
+  Known anomalies that must stay documented: `train/box_loss` is `inf` in
+  epochs 2--8 (cause undiagnosed; cls/dfl losses and validation mAP still
+  improved monotonically), validation losses are logged as 0, 472
+  duplicate-label warnings removed 1,038 labels, `tuplet2`, `tuplet9`, and
+  `clefUnpitchedPercussion` score 0, and `stem`/`ledgerLine` recall remains
+  low. The checkpoint and analysis are local only (outside Git).
+- A later 20-epoch Complete all136 run finished on the server, but its results
+  have not been downloaded or evaluated. Do not cite it or assume it is better
+  than the 8-epoch checkpoint until the two are compared on the same validation
+  set.
+- The 8-epoch checkpoint produced model pre-annotations for all 243 BPSD pages
+  at confidence 0.25 (258,383 merged boxes) and 0.01 (607,480 merged boxes).
+  BPSD has no matching human ground truth for these runs, so no accuracy can be
+  computed from them; the 0.01 export lets annotators choose their own
+  confidence cutoff.
 - After the resume-safety update, 45 articulation/piano dataset and integration
   tests plus 14 slur/tie tests passed. A real one-page-per-split Complete micro
   conversion produced 6/12 train/validation tiles, reused both chunks with an
@@ -517,6 +538,14 @@ Useful command:
   comparison.
 - `articulation_experiments/inference/build_curve_v2_comparison_gallery.py`:
   fixed-page previous-symbol, curve-only, and combined visual comparison.
+- `articulation_experiments/inference/build_full_inference_gallery.py`:
+  full-page prediction gallery (`index.html`, `gallery_summary.json`).
+- `articulation_experiments/inference/export_merged_predictions_to_yolo.py`:
+  `*.merged.json` to standard YOLO labels for annotation tools (no confidence).
+- `articulation_experiments/inference/export_prediction_confidence_csv.py`:
+  per-box confidence and coordinate CSV sidecar.
+- `articulation_experiments/inference/package_inference_results.py`: ZIP
+  packaging of predictions without source inputs; `--model-label` is required.
 - `omr/articulation.py`: symbol inference, thresholds, association.
 - `omr/slur_tie.py`: curve detection, endpoint association, MusicXML rules.
 - `omr/text_directions.py`: constrained OCR.
@@ -554,6 +583,19 @@ The user can paste this:
 > Update `CHATGPT_PROJECT_CONTEXT.md` with every material decision or result.
 
 ## 14. Change log
+
+- 2026-11-26: Committed four full-page inference export tools used for the
+  243-page BPSD pre-annotation packages: HTML gallery, YOLO label export,
+  confidence CSV, and ZIP packaging. The gallery now builds `../` relative links
+  (file-URI fallback across drives) instead of failing when inputs or
+  predictions are outside the output folder, and escapes link targets. The
+  packager no longer hard-codes page count, epoch, or tiling/NMS settings;
+  `--model-label` is required and the rest are arguments. The YOLO export clips
+  boxes to the page, while the CSV keeps raw unclipped pixel coordinates.
+  Recorded the completed 8-epoch Complete all136 validation metrics and
+  anomalies, the unevaluated 20-epoch server run, and the BPSD 0.25/0.01
+  pre-annotation counts. Verified with a synthetic smoke run only; no unit
+  tests were added.
 
 - 2026-08-25: Replaced the stale, training-heavy root README with a concise
   project summary and one human handoff entry. Added `docs/handoff/` pages for
